@@ -9,9 +9,11 @@ authors = [
 requires-python = ">=3.14"
 dependencies = [
     "cython>=3.3.1",
+    "gothicos-sdk",
     "jsonschema>=4.23",
     "mpremote>=1.29.0",
     "mpy-cross>=1.29.0.post2",
+    "west>=1.5.0",
 ]
 
 [project.scripts]
@@ -20,3 +22,11 @@ gothicos = "gothicos:main"
 [build-system]
 requires = ["uv_build>=0.13.8,<0.14.0"]
 build-backend = "uv_build"
+
+[tool.uv.workspace]
+members = [
+    "SDK",
+]
+
+[tool.uv.sources]
+gothicos-sdk = { workspace = true }

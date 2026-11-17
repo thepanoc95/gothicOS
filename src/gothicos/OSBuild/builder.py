@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -10,6 +11,8 @@ from typing import Any
 
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError
+
+from .fdt import cpu_count_from_fdt
 
 SCHEMA_PATH = Path(__file__).with_name("schema") / "osbuild.json"
 DEFAULT_BOARD_CONFIG = Path(__file__).with_name("boards") / "rp2-rpiw.json"
@@ -28,6 +31,7 @@ class BuildAction:
     command: tuple[str, ...]
     cwd: Path
     env: dict[str, str]
+    output_path: Path | None = None
 
 
 @lru_cache(maxsize=1)
@@ -96,20 +100,123 @@ def _collect_recipe_paths(value: Any) -> list[str]:
     return paths
 
 
-def _load_recipe(path: Path) -> tuple[str, list[dict[str, Any]]]:
-    document = _read_json(path)
-    _validate_document(document, path)
-    if "@build" not in document:
-        raise BuildError(f"Expected a local build recipe at {path}, but found a board config")
-    build = document["@build"]
-    return build["name"], build["steps"]
-
-
 def _recipe_actions(
     recipe_path: Path,
     project_root: Path,
+    build_environment: dict[str, str] | None = None,
 ) -> list[BuildAction]:
-    recipe_name, steps = _load_recipe(recipe_path)
+    document = _read_json(recipe_path)
+    _validate_document(document, recipe_path)
+    if "@build" not in document:
+        raise BuildError(
+            f"Expected a local build recipe at {recipe_path}, but found a board config"
+        )
+
+    build = document["@build"]
+    if "recipe" in build:
+        recipe = build["recipe"]
+        recipe_environment = dict(build_environment or {})
+        kernel_abi = recipe.get("kernel-abi")
+        if kernel_abi is not None:
+            version_parts = kernel_abi.split(".")
+            if len(version_parts) != 3 or any(not part.isdigit() for part in version_parts):
+                raise BuildError(f"Invalid kernel ABI version {kernel_abi!r}; expected MAJOR.MINOR.PATCH")
+            recipe_environment["GOTHICOS_KERNEL_ABI"] = kernel_abi
+        recipe_name = recipe["name"]
+        if not _is_output_component(recipe_name):
+            raise BuildError(f"Recipe name is not a valid output directory name: {recipe_name!r}")
+
+        actions: list[BuildAction] = []
+        for entry in recipe["entry"]:
+            entry_path = _resolve_recipe_file(
+                entry,
+                recipe_path,
+                project_root,
+                f"entry point for recipe {recipe_name!r}",
+            )
+            actions.append(
+                BuildAction(
+                    recipe_path=recipe_path,
+                    recipe_name=recipe_name,
+                    step_name=f"entry {entry}",
+                    command=(sys.executable, str(entry_path)),
+                    cwd=recipe_path.parent,
+                    env=recipe_environment,
+                )
+            )
+
+        for output_name, output in recipe["outputs"].items():
+            if not _is_output_component(output_name):
+                raise BuildError(
+                    f"Output name is not a valid output directory name: {output_name!r}"
+                )
+            bytecode_version = output["micropython-bytecode"]
+            if not bytecode_version.startswith("v") or not bytecode_version[1:].isdigit():
+                raise BuildError(
+                    f"Unsupported MicroPython bytecode version {bytecode_version!r} "
+                    f"in output {output_name!r}; expected a version such as 'v6'"
+                )
+            mpy_cross_arch = output.get("mpy-cross-arch")
+            if mpy_cross_arch is not None and (
+                not isinstance(mpy_cross_arch, str) or not mpy_cross_arch
+            ):
+                raise BuildError(
+                    f"Invalid mpy-cross architecture {mpy_cross_arch!r} "
+                    f"in output {output_name!r}"
+                )
+
+            for source in output["source.files"]:
+                source_path = _resolve_recipe_file(
+                    source,
+                    recipe_path,
+                    project_root,
+                    f"source file for output {output_name!r}",
+                )
+                if source_path.suffix == ".py":
+                    compiler_parts = ["mpy-cross"]
+                    if mpy_cross_arch is not None:
+                        compiler_parts.append("-march=" + mpy_cross_arch)
+                    compiler_parts.extend(
+                        ("-s", source_path.relative_to(project_root).as_posix())
+                    )
+                    compiler = tuple(compiler_parts)
+                    output_suffix = ".mpy"
+                elif source_path.suffix == ".pyx":
+                    compiler = (sys.executable, "-m", "cython", "-3")
+                    output_suffix = ".c"
+                else:
+                    raise BuildError(
+                        f"Output {output_name!r} does not support source file "
+                        f"{source_path.name!r}; expected .py or .pyx"
+                    )
+
+                relative_source = source_path.relative_to(project_root)
+                output_path = (
+                    project_root
+                    / "build"
+                    / recipe_name
+                    / output_name
+                    / relative_source.with_suffix(output_suffix)
+                )
+                actions.append(
+                    BuildAction(
+                        recipe_path=recipe_path,
+                        recipe_name=recipe_name,
+                        step_name=f"compile {source}",
+                        command=(
+                            *compiler,
+                            "-o",
+                            str(output_path),
+                            str(source_path),
+                        ),
+                        cwd=project_root,
+                        env=recipe_environment,
+                        output_path=output_path,
+                    )
+                )
+        return actions
+
+    recipe_name, steps = build["name"], build["steps"]
     actions: list[BuildAction] = []
     for step in steps:
         cwd_value = step.get("cwd", str(project_root))
@@ -136,10 +243,57 @@ def _recipe_actions(
                 step_name=step["name"],
                 command=command,
                 cwd=cwd,
-                env=environment,
+                env={**(build_environment or {}), **environment},
             )
         )
     return actions
+
+
+def _is_output_component(value: str) -> bool:
+    return bool(value) and value not in {".", ".."} and all(
+        character.isalnum() or character in "._-" for character in value
+    )
+
+
+def _resolve_recipe_file(
+    value: str,
+    recipe_path: Path,
+    project_root: Path,
+    context: str,
+) -> Path:
+    resolved_value = value.replace(PROJECT_ROOT_TOKEN, str(project_root))
+    path = Path(resolved_value)
+    if not path.is_absolute():
+        path = recipe_path.parent / path
+    resolved = path.resolve()
+    if not resolved.is_relative_to(project_root):
+        raise BuildError(
+            f"{context.capitalize()} must be inside project root {project_root}: {value}"
+        )
+    if not resolved.is_file():
+        raise BuildError(f"Unable to resolve {context} {value!r}: file does not exist")
+    return resolved
+
+
+def _board_build_environment(board: dict[str, Any], project_root: Path) -> dict[str, str]:
+    board_fdt = board.get("@fdt")
+    if board_fdt is not None:
+        fdt_path = _resolve_project_path(board_fdt["path"], project_root, "FDT")
+        try:
+            cpu_count = cpu_count_from_fdt(fdt_path.read_bytes())
+        except (OSError, ValueError) as error:
+            raise BuildError(f"Unable to read FDT {fdt_path}: {error}") from error
+        return {
+            "GOTHICOS_CPU_COUNT": str(cpu_count),
+            "GOTHICOS_MULTICORE": "1" if cpu_count > 1 else "0",
+            "GOTHICOS_FDT_PATH": str(fdt_path),
+        }
+
+    cpu_count = sum(len(cores) for cores in board.get("@cpu", {}).values())
+    environment = {"GOTHICOS_CPU_COUNT": str(cpu_count)} if cpu_count else {}
+    if cpu_count:
+        environment["GOTHICOS_MULTICORE"] = "1" if cpu_count > 1 else "0"
+    return environment
 
 
 def load_build_plan(
@@ -160,7 +314,9 @@ def load_build_plan(
     if "@build" in board_document:
         return _recipe_actions(config, root)
 
-    recipe_references = _collect_recipe_paths(board_document["@board"])
+    board = board_document["@board"]
+    build_environment = _board_build_environment(board, root)
+    recipe_references = _collect_recipe_paths(board)
     if not recipe_references:
         raise BuildError(f"No local JSON build recipes are referenced by {config}")
 
@@ -171,7 +327,7 @@ def load_build_plan(
         if recipe_path in seen_recipes:
             continue
         seen_recipes.add(recipe_path)
-        actions.extend(_recipe_actions(recipe_path, root))
+        actions.extend(_recipe_actions(recipe_path, root, build_environment))
     return actions
 
 
@@ -189,6 +345,8 @@ def build(
         environment = os.environ.copy()
         environment.update(action.env)
         try:
+            if action.output_path is not None:
+                action.output_path.parent.mkdir(parents=True, exist_ok=True)
             result = subprocess.run(
                 action.command,
                 cwd=action.cwd,

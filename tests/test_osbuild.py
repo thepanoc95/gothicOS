@@ -10,6 +10,10 @@ from pathlib import Path
 
 from gothicos import main
 from gothicos.OSBuild import BuildError, build, load_build_plan
+try:
+    from .fdt_fixture import build_fdt
+except ImportError:
+    from fdt_fixture import build_fdt
 
 
 class OSBuildTests(unittest.TestCase):
@@ -149,6 +153,128 @@ class OSBuildTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertIn("standalone: create marker", output.getvalue())
         self.assertFalse((self.root / "unexpected").exists())
+
+    def test_build_runs_recipe_entry_relative_to_recipe_directory(self) -> None:
+        recipe_directory = self.root / "recipes" / "simple"
+        recipe_directory.mkdir()
+        (recipe_directory / "build.py").write_text(
+            "from pathlib import Path\nPath('built').touch()\n", encoding="utf-8"
+        )
+        (recipe_directory / "kernel.py").write_text("answer = 42\n", encoding="utf-8")
+        (recipe_directory / "oshardware.pyx").write_text(
+            "def hardware():\n    return 1\n", encoding="utf-8"
+        )
+        recipe = recipe_directory / "build.json"
+        recipe.write_text(
+            json.dumps(
+                {
+                    "$schema": "../../src/gothicos/OSBuild/schema/osbuild.json",
+                    "@build": {
+                        "recipe": {
+                            "name": "simple",
+                            "type": "Runtime Kernel",
+                            "entry": ["build.py"],
+                            "outputs": {
+                                "KernelCollection": {
+                                    "micropython-bytecode": "v6",
+                                    "source.files": ["kernel.py", "oshardware.pyx"],
+                                }
+                            },
+                        }
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        planned_actions = build(recipe, self.root, dry_run=True)
+
+        self.assertEqual(len(planned_actions), 3)
+        self.assertFalse((recipe_directory / "built").exists())
+        self.assertFalse((self.root / "build").exists())
+
+        actions = build(recipe, self.root)
+
+        self.assertEqual(len(actions), 3)
+        self.assertEqual(actions[0].cwd, recipe_directory)
+        self.assertTrue((recipe_directory / "built").exists())
+        self.assertTrue(
+            (
+                self.root
+                / "build"
+                / "simple"
+                / "KernelCollection"
+                / "recipes"
+                / "simple"
+                / "kernel.mpy"
+            ).is_file()
+        )
+        self.assertTrue(
+            (
+                self.root
+                / "build"
+                / "simple"
+                / "KernelCollection"
+                / "recipes"
+                / "simple"
+                / "oshardware.c"
+            ).is_file()
+        )
+
+    def test_source_recipe_passes_mpy_cross_architecture(self) -> None:
+        recipe_directory = self.root / "recipes" / "rp2"
+        recipe_directory.mkdir()
+        (recipe_directory / "build.py").write_text("pass\n", encoding="utf-8")
+        (recipe_directory / "kernel.py").write_text("answer = 42\n", encoding="utf-8")
+        recipe = recipe_directory / "build.json"
+        recipe.write_text(
+            json.dumps(
+                {
+                    "$schema": "../../src/gothicos/OSBuild/schema/osbuild.json",
+                    "@build": {
+                        "recipe": {
+                            "name": "rp2-kernel",
+                            "type": "Runtime Kernel",
+                            "kernel-abi": "1.0.0",
+                            "entry": ["build.py"],
+                            "outputs": {
+                                "KernelCollection": {
+                                    "micropython-bytecode": "v6",
+                                    "mpy-cross-arch": "armv6m",
+                                    "source.files": ["kernel.py"],
+                                }
+                            },
+                        }
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        actions = build(recipe, self.root, dry_run=True)
+
+        self.assertIn("-march=armv6m", actions[1].command)
+        self.assertNotIn("-b", actions[1].command)
+        self.assertEqual(actions[0].env["GOTHICOS_KERNEL_ABI"], "1.0.0")
+        self.assertEqual(actions[1].env["GOTHICOS_KERNEL_ABI"], "1.0.0")
+
+    def test_board_fdt_sets_cpu_topology_for_recipe_actions(self) -> None:
+        self.write_recipe("boot", {"name": "boot", "run": [sys.executable, "-c", "pass"]})
+        self.write_recipe("kernel", {"name": "kernel", "run": [sys.executable, "-c", "pass"]})
+        board_path = self.write_board("recipes/boot.json", "recipes/kernel.json")
+        fdt_path = self.root / "board.dtb"
+        fdt_path.write_bytes(build_fdt(("okay", "okay", "disabled")))
+        document = json.loads(board_path.read_text(encoding="utf-8"))
+        document["@board"]["@fdt"] = {"path": "%PROJROOT/board.dtb"}
+        board_path.write_text(json.dumps(document), encoding="utf-8")
+
+        actions = load_build_plan(board_path, self.root)
+
+        self.assertEqual(len(actions), 2)
+        for action in actions:
+            self.assertEqual(action.env["GOTHICOS_CPU_COUNT"], "2")
+            self.assertEqual(action.env["GOTHICOS_MULTICORE"], "1")
+            self.assertEqual(action.env["GOTHICOS_FDT_PATH"], str(fdt_path))
 
     def test_missing_recipe_is_reported(self) -> None:
         board = self.write_board("recipes/missing.json", "recipes/missing.json")

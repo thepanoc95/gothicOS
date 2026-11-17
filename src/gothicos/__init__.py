@@ -18,7 +18,7 @@ def _parser() -> argparse.ArgumentParser:
             command,
             help="validate a board config and its local build recipes"
             if command == "validate"
-            else "run the local build recipes referenced by a board config",
+            else "build outputs from local recipes referenced by a board config",
         )
         subparser.add_argument(
             "-c",
@@ -60,7 +60,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     print(f"{action.recipe_name}: {action.step_name} (cwd: {action.cwd})")
                     print(f"  {json.dumps(action.command)}")
             else:
-                print(f"Build completed; ran {len(actions)} build step(s).")
+                print(f"Build completed; ran {len(actions)} action(s).")
     except BuildError as error:
         print(f"gothicos: error: {error}", file=sys.stderr)
         return 1

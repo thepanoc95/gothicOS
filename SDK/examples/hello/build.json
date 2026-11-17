@@ -1,0 +1,21 @@
+{
+    "$schema": "../../../src/gothicos/OSBuild/schema/osbuild.json",
+    "@build": {
+        "recipe": {
+            "name": "hello",
+            "type": "Application",
+            "kernel-abi": "1.1.1",
+            "entry": [ "entry.py" ],
+            "outputs": {
+                "App": {
+                    "micropython-bytecode": "v6",
+                    "mpy-cross-arch": "armv6m",
+                    "source.files": [
+                        "main.py",
+                        "%PROJROOT/SDK/device/nullkern_sdk.py"
+                    ]
+                }
+            }
+        }
+    }
+}

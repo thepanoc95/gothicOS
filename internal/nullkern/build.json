@@ -4,19 +4,35 @@
         "recipe": {
             "name": "nullkernRT",
             "type": "Runtime Kernel",
+            "kernel-abi": "1.1.1",
             "entry": [ "build.py" ],
             "outputs": {
-                "KernelCollection": { 
+                "KernelCollection": {
                     "micropython-bytecode": "v6",
-                    "files": [ 
-                        "kernel.mpy",
-                        "oshardware.mpy",
-                        "osbin.mpy",
-                        "binfmt.mpy"
-                        "__binfmt.py",
-                        "__osloader.mpy",
-                        "__klog.mpy",
-                        "__sys_types.mpy"
+                    "mpy-cross-arch": "armv6m",
+                    "source.files": [
+                        "__init__.py",
+                        "kernel.py",
+                        "fdt.py",
+                        "abi.py",
+                        "capability.py",
+                        "memory.py",
+                        "ports.py",
+                        "irq.py",
+                        "drivers.py",
+                        "OSPlatform.py",
+                        "boot.py",
+                        "subsystems/__init__.py",
+                        "subsystems/ability_manager.py",
+                        "subsystems/softbus.py",
+                        "subsystems/scheduler.py",
+                        "subsystems/remote.py",
+                        "subsystems/distributed.py",
+                        "binary/__init__.py",
+                        "binary/format.py",
+                        "binary/verifier.py",
+                        "binary/package.py",
+                        "binary/vm.py"
                     ]
                 }
             }

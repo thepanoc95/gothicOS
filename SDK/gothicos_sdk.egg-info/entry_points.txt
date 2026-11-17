@@ -1,0 +1,2 @@
+[console_scripts]
+gothicos-sdk = gothicos_sdk.cli:main

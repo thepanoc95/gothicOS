@@ -55,6 +55,9 @@
         "@cpu": {
           "$ref": "#/$defs/cpu"
         },
+        "@fdt": {
+          "$ref": "#/$defs/fdt"
+        },
         "@mem": {
           "$ref": "#/$defs/memory"
         },
@@ -81,6 +84,17 @@
           "minLength": 1
         }
       }
+    },
+    "fdt": {
+      "type": "object",
+      "required": ["path"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
     },
     "memory": {
       "type": "object",
@@ -252,24 +266,107 @@
     },
     "build": {
       "type": "object",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "name",
+            "steps"
+          ],
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "steps": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "#/$defs/buildStep"
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "recipe"
+          ],
+          "properties": {
+            "recipe": {
+              "$ref": "#/$defs/recipe"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "recipe": {
+      "type": "object",
       "required": [
         "name",
-        "steps"
+        "type",
+        "entry",
+        "outputs"
       ],
       "properties": {
         "name": {
           "type": "string",
           "minLength": 1
         },
-        "steps": {
+        "type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "entry": {
           "type": "array",
           "minItems": 1,
           "items": {
-            "$ref": "#/$defs/buildStep"
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "kernel-abi": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+        },
+        "outputs": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "$ref": "#/$defs/recipeOutput"
           }
         }
       },
       "additionalProperties": false
+    },
+    "recipeOutput": {
+      "type": "object",
+      "required": [
+        "micropython-bytecode",
+        "source.files"
+      ],
+      "properties": {
+        "micropython-bytecode": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mpy-cross-arch": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source.files": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "additionalProperties": true
     },
     "buildStep": {
       "type": "object",

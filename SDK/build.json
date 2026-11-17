@@ -1,0 +1,32 @@
+{
+    "$schema": "../src/gothicos/OSBuild/schema/osbuild.json",
+    "@build": {
+        "recipe": {
+            "name": "SDK",
+            "type": "SDK / Toolchain",
+            "kernel-abi": "1.1.1",
+            "entry": [ "toolchain/entry.py" ],
+            "outputs": {
+                "Toolchain": {
+                    "micropython-bytecode": "v6",
+                    "source.files": [
+                        "toolchain/llvm/_os_code_convention.pyx",
+                        "toolchain/llvm/_os_syscalls.pyx",
+                        "toolchain/llvm/_os_threads.pyx",
+                        "toolchain/llvm/_os_platform_arch.pyx",
+                        "toolchain/llvm/toolmode.pyx",
+                        "toolchain/llvm/hostBuildCalls.pyx",
+                        "toolchain/llvm/assemble.pyx"
+                    ]
+                },
+                "Device": {
+                    "micropython-bytecode": "v6",
+                    "mpy-cross-arch": "armv6m",
+                    "source.files": [
+                        "device/nullkern_sdk.py"
+                    ]
+                }
+            }
+        }
+    }
+}

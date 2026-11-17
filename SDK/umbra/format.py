@@ -1,0 +1,91 @@
+"""Umbra Bytecode v0.1 container format (host-side encoder constants).
+
+This module mirrors ``internal/nullkern/binary/format.py``. Both files must stay in
+sync; tests compare their exported constants.
+"""
+
+MAGIC = b"UMB1"
+VERSION_MAJOR = 0
+VERSION_MINOR = 1
+ABI_MAJOR = 1
+ABI_MINOR = 1
+HEADER_SIZE = 24
+FUNCTION_RECORD_SIZE = 8
+INSTRUCTION_SIZE = 2
+
+CONST_NULL = 0
+CONST_BOOL = 1
+CONST_INT = 2
+CONST_FLOAT = 3
+CONST_STRING = 4
+
+OP_NOP = 0
+OP_PUSH_CONST = 1
+OP_PUSH_TRUE = 2
+OP_PUSH_FALSE = 3
+OP_PUSH_NULL = 4
+OP_POP = 5
+OP_DUP = 6
+OP_LOAD_LOCAL = 7
+OP_STORE_LOCAL = 8
+OP_ADD = 9
+OP_SUB = 10
+OP_MUL = 11
+OP_DIV = 12
+OP_MOD = 13
+OP_NEG = 14
+OP_NOT = 15
+OP_EQ = 16
+OP_NE = 17
+OP_LT = 18
+OP_LE = 19
+OP_GT = 20
+OP_GE = 21
+OP_JMP = 22
+OP_JZ = 23
+OP_JNZ = 24
+OP_CALL = 25
+OP_CALL_NATIVE = 26
+OP_RET = 27
+OP_RET_VOID = 28
+OP_HALT = 29
+OP_ARRAY_NEW = 30
+OP_ARRAY_GET = 31
+OP_ARRAY_SET = 32
+OP_YIELD = 33
+OP_LABEL = -1  # assembler marker; never emitted into the binary
+
+OPCODES = {
+    name: value for name, value in list(globals().items()) if name.startswith("OP_")
+}
+OPCODE_NAMES = {value: name for name, value in OPCODES.items()}
+
+NATIVE_LOG = 1
+NATIVE_YIELD = 2
+NATIVE_INFO = 3
+NATIVE_PORT_SEND = 4
+NATIVE_PORT_RECEIVE = 5
+NATIVE_MEM_ALLOC = 6
+NATIVE_MEM_FREE = 7
+NATIVE_IRQ_TIMER = 8
+NATIVE_TASK_STOP = 9
+
+NATIVE_ARITY = {
+    NATIVE_LOG: 1,
+    NATIVE_YIELD: 0,
+    NATIVE_INFO: 0,
+    NATIVE_PORT_SEND: 2,
+    NATIVE_PORT_RECEIVE: 1,
+    NATIVE_MEM_ALLOC: 2,
+    NATIVE_MEM_FREE: 2,
+    NATIVE_IRQ_TIMER: 0,
+    NATIVE_TASK_STOP: 1,
+}
+
+MAX_LOCALS = 255
+MAX_CONSTANTS = 65535
+MAX_FUNCTIONS = 65535
+MAX_CODE_SIZE = 65535
+MAX_STACK_DEPTH = 64
+MAX_CALL_DEPTH = 16
+MAX_ARRAY_LENGTH = 256
