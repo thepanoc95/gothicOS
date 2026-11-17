@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080" role="img" aria-labelledby="title description">
+  <title id="title">gothicOS abstract wallpaper</title>
+  <desc id="description">A midnight blue field with a softly glowing, sweeping blue-violet arc and an abstract pointed arch.</desc>
+  <defs>
+    <radialGradient id="ambient" cx="70%" cy="28%" r="74%">
+      <stop stop-color="#351369"/>
+      <stop offset=".38" stop-color="#111e62"/>
+      <stop offset="1" stop-color="#050713"/>
+    </radialGradient>
+    <linearGradient id="sweep" x1=".05" y1=".95" x2=".95" y2=".08">
+      <stop stop-color="#4f79ff" stop-opacity="0"/>
+      <stop offset=".42" stop-color="#678dff" stop-opacity=".85"/>
+      <stop offset=".64" stop-color="#dd91ff"/>
+      <stop offset=".78" stop-color="#81d9ff"/>
+      <stop offset="1" stop-color="#627bff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="horizon" x1="0" y1="0" x2="1" y2="0">
+      <stop stop-color="#589bff" stop-opacity="0"/>
+      <stop offset=".48" stop-color="#83caff" stop-opacity=".82"/>
+      <stop offset=".72" stop-color="#bd8cff" stop-opacity=".46"/>
+      <stop offset="1" stop-color="#589bff" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="soft-glow" x="-.3" y="-.5" width="1.6" height="2">
+      <feGaussianBlur stdDeviation="34"/>
+    </filter>
+    <filter id="line-glow" x="-.3" y="-.3" width="1.6" height="1.6">
+      <feGaussianBlur stdDeviation="12"/>
+    </filter>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#ambient)"/>
+  <ellipse cx="1450" cy="250" rx="420" ry="260" fill="#b238f4" opacity=".23" filter="url(#soft-glow)"/>
+  <ellipse cx="770" cy="830" rx="470" ry="210" fill="#315bff" opacity=".19" filter="url(#soft-glow)"/>
+  <path d="M-70 1050C290 770 465 355 1015 320S1575 469 2000-105" fill="none" stroke="url(#sweep)" stroke-linecap="round" stroke-width="86" opacity=".45" filter="url(#line-glow)"/>
+  <path d="M-70 1050C290 770 465 355 1015 320S1575 469 2000-105" fill="none" stroke="url(#sweep)" stroke-linecap="round" stroke-width="4" opacity=".92"/>
+  <path d="M-30 998C326 726 499 319 1021 287S1580 434 1960-95" fill="none" stroke="#c1cfff" stroke-opacity=".34" stroke-width="2"/>
+  <path d="M0 846h1920" fill="none" stroke="url(#horizon)" stroke-width="3"/>
+  <path d="M0 847h1920" fill="none" stroke="url(#horizon)" stroke-width="28" opacity=".35" filter="url(#line-glow)"/>
+  <path d="M1110 846V652c0-154 125-279 279-279s279 125 279 279v194" fill="none" stroke="#91a9ff" stroke-opacity=".12" stroke-width="2"/>
+  <path d="M1202 846V655c0-103 84-187 187-187s187 84 187 187v191" fill="none" stroke="#c3b9ff" stroke-opacity=".1" stroke-width="2"/>
+  <circle cx="1389" cy="654" r="4" fill="#d9d4ff" opacity=".85"/>
+</svg>

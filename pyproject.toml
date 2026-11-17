@@ -1,0 +1,22 @@
+[project]
+name = "gothicos"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "thepanoc95", email = "oakymacintosh@duck.com" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "cython>=3.3.1",
+    "jsonschema>=4.23",
+    "mpremote>=1.29.0",
+    "mpy-cross>=1.29.0.post2",
+]
+
+[project.scripts]
+gothicos = "gothicos:main"
+
+[build-system]
+requires = ["uv_build>=0.13.8,<0.14.0"]
+build-backend = "uv_build"

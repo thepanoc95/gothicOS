@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title description">
+  <title id="title">gothicOS app icon</title>
+  <desc id="description">A luminous pointed arch and star on a midnight blue rounded square.</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#101735"/>
+      <stop offset="1" stop-color="#050710"/>
+    </linearGradient>
+    <linearGradient id="light" x1=".15" y1=".9" x2=".85" y2=".1">
+      <stop stop-color="#61d6ff"/>
+      <stop offset=".52" stop-color="#7188ff"/>
+      <stop offset="1" stop-color="#d282ff"/>
+    </linearGradient>
+    <filter id="glow" x="-.5" y="-.5" width="2" height="2">
+      <feGaussianBlur stdDeviation="10" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#background)"/>
+  <path d="M91 388V250c0-91 74-165 165-165s165 74 165 165v138" fill="none" stroke="#718aff" stroke-opacity=".13" stroke-width="2"/>
+  <path d="M133 383V249c0-68 55-123 123-123s123 55 123 123v134" fill="none" stroke="url(#light)" stroke-linecap="round" stroke-linejoin="round" stroke-width="22" filter="url(#glow)"/>
+  <path d="M185 383V250c0-39 32-71 71-71s71 32 71 71v133" fill="none" stroke="#f4f6ff" stroke-opacity=".9" stroke-linecap="round" stroke-width="8"/>
+  <path d="m256 222 10 20 22 3-16 15 4 22-20-11-20 11 4-22-16-15 22-3z" fill="#f9f5ff"/>
+  <path d="M184 413h144" fill="none" stroke="url(#light)" stroke-linecap="round" stroke-width="12"/>
+</svg>

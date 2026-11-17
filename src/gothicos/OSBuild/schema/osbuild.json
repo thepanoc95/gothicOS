@@ -1,0 +1,307 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "gothicOS build configuration",
+  "description": "Board descriptions and local command recipes used by OSBuild.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/boardDocument"
+    },
+    {
+      "$ref": "#/$defs/buildDocument"
+    }
+  ],
+  "$defs": {
+    "boardDocument": {
+      "type": "object",
+      "required": [
+        "$schema",
+        "@board"
+      ],
+      "properties": {
+        "$schema": {
+          "type": "string"
+        },
+        "@board": {
+          "$ref": "#/$defs/board"
+        }
+      },
+      "additionalProperties": false
+    },
+    "board": {
+      "type": "object",
+      "required": [
+        "name",
+        "family",
+        "soc",
+        "@cpu",
+        "@mem",
+        "@flash",
+        "@/boot",
+        "@/software"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "family": {
+          "type": "string",
+          "minLength": 1
+        },
+        "soc": {
+          "type": "string",
+          "minLength": 1
+        },
+        "@cpu": {
+          "$ref": "#/$defs/cpu"
+        },
+        "@mem": {
+          "$ref": "#/$defs/memory"
+        },
+        "@flash": {
+          "$ref": "#/$defs/flash"
+        },
+        "@/boot": {
+          "$ref": "#/$defs/boot"
+        },
+        "@/software": {
+          "$ref": "#/$defs/software"
+        }
+      },
+      "additionalProperties": true
+    },
+    "cpu": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "minProperties": 1,
+        "additionalProperties": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "memory": {
+      "type": "object",
+      "required": [
+        "size",
+        "type",
+        "protocol"
+      ],
+      "properties": {
+        "size": {
+          "type": "string",
+          "minLength": 1
+        },
+        "type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "protocol": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": true
+    },
+    "flash": {
+      "type": "object",
+      "required": [
+        "type",
+        "size"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "size": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": true
+    },
+    "boot": {
+      "type": "object",
+      "properties": {
+        "mem-offset": {
+          "type": "string"
+        },
+        "mem-addr-start": {
+          "type": "string"
+        },
+        "mem-addr-end": {
+          "type": "string"
+        },
+        "@/boot/pre-software": {
+          "$ref": "#/$defs/preSoftware"
+        }
+      },
+      "additionalProperties": true
+    },
+    "preSoftware": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version.default": {
+          "type": "string",
+          "minLength": 1
+        },
+        "entry.kernel": {
+          "type": "string"
+        },
+        "loader.kernel": {
+          "type": "string"
+        },
+        "presoft.kernel.path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "config.kernel": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "software": {
+      "type": "object",
+      "required": [
+        "@kernel"
+      ],
+      "properties": {
+        "@kernel": {
+          "type": "object",
+          "minProperties": 1,
+          "patternProperties": {
+            "^entry[0-9]+$": {
+              "$ref": "#/$defs/softwareEntry"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": true
+    },
+    "softwareEntry": {
+      "type": "object",
+      "required": [
+        "name",
+        "type"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "thirdparty?": {
+          "type": "boolean"
+        },
+        "url": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "imports": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "path"
+          ]
+        },
+        {
+          "required": [
+            "url"
+          ]
+        }
+      ],
+      "additionalProperties": true
+    },
+    "buildDocument": {
+      "type": "object",
+      "required": [
+        "$schema",
+        "@build"
+      ],
+      "properties": {
+        "$schema": {
+          "type": "string"
+        },
+        "@build": {
+          "$ref": "#/$defs/build"
+        }
+      },
+      "additionalProperties": false
+    },
+    "build": {
+      "type": "object",
+      "required": [
+        "name",
+        "steps"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "steps": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/buildStep"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "buildStep": {
+      "type": "object",
+      "required": [
+        "name",
+        "run"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "run": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "cwd": {
+          "type": "string",
+          "minLength": 1
+        },
+        "env": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

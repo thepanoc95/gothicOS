@@ -1,0 +1,25 @@
+{
+    "$schema": "../../src/gothicos/OSBuild/schema/osbuild.json",
+    "@build": {
+        "recipe": {
+            "name": "nullkernRT",
+            "type": "Runtime Kernel",
+            "entry": [ "build.py" ],
+            "outputs": {
+                "KernelCollection": { 
+                    "micropython-bytecode": "v6",
+                    "files": [ 
+                        "kernel.mpy",
+                        "oshardware.mpy",
+                        "osbin.mpy",
+                        "binfmt.mpy"
+                        "__binfmt.py",
+                        "__osloader.mpy",
+                        "__klog.mpy",
+                        "__sys_types.mpy"
+                    ]
+                }
+            }
+        }
+    }
+}

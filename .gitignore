@@ -1,0 +1,15 @@
+.venv/
+__pycache__
+*.mpy
+*.uf2
+*.bin
+*.img
+*.img3
+*.gz
+*.elf
+*.elf32
+*.pyc
+*.o
+*.out
+build/
+

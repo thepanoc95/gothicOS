@@ -1,0 +1,57 @@
+{
+    "$schema": "../schema/osbuild.json",
+    "@board": {
+        "name": "raspberry-pi-pico-wh",
+        "family": "raspberry-pi",
+        "soc": "rp2040",
+        "@cpu": {
+            "arm": {
+                "core0": "Cortex-M0+",
+                "core1": "Cortex-M0+"
+            }
+        },
+        "@mem": {
+            "size": "264K",
+            "type": "sram",
+            "protocol": "spi"
+        },
+        "@flash": {
+            "type": "generic",
+            "size": "2M"
+        },
+        "@/boot": {
+            "mem-offset": "",
+            "mem-addr-start": "",
+            "mem-addr-end": "",
+            "@/boot/pre-software": {
+                "name": "MicroPython",
+                "version.default": "v1.30.0-preview.290.g3d811b9d19",
+                "entry.kernel": "\\@flash/data/kernel.mpy",
+                "loader.kernel": "\\@flash/main.py",
+                "presoft.kernel.path": "%PROJROOT/internal/nullkern/build.json",
+                "config.kernel": "\\@flash/data/system/config.json"
+            }
+        },
+        "@/software": {
+            "@kernel": {
+                "entry0": {
+                    "name": "Zephyr",
+                    "type": "RTOS",
+                    "thirdparty?": true,
+                    "url": "https://github.com/zephyrproject-rtos/zephyr"
+                },
+                "entry1": {
+                    "name": "MicroPython+nullkernelRT",
+                    "type": "Runtime Kernel",
+                    "thirdparty?": false,
+                    "path": "%PROJROOT/internal/nullkern/build.json",
+                    "imports": {
+                        "micropython": "v1.30.0-preview.290.g3d811b9d19",
+                        "gcc": "15.2.0",
+                        "mpy-cross": "1.29.0.post2"
+                    }
+                }
+            }
+        }
+    }
+}
