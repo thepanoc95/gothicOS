@@ -63,3 +63,22 @@ sudo make install
 `make uninstall` removes the module. The LKM exposes four ioctls: `GET_INFO`,
 `RAISE_IRQ`, `PORT_SEND`, and `SCHED_HINT`. They update counters and wake waiters; they do
 not execute application code.
+
+## Native components
+
+The Cython port's `abi_invoke(opcode, *args)` can be passed directly to
+`gothicos_sdk.NativeComponent`, so a native C library built by the
+`native/build.json` recipe runs against either `LinuxKernel` or the pure-Python
+`Kernel` without changes:
+
+```python
+from gothicos_sdk import NativeComponent
+import gothicos_linux_port as port
+
+kernel = port.kernel_from_device("/dev/nullkern")
+echo = NativeComponent("build/NativeComponents/Native/libgothicos_native.so", kernel.abi_invoke)
+echo.start()
+```
+
+See [Native Components](NativeComponents.md) for the C ABI, build recipe, and
+firmware-side notes.

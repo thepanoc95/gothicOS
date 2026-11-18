@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import ctypes
 import json
 import io
+import shutil
 import sys
 import tempfile
 import unittest
@@ -300,6 +302,52 @@ class OSBuildTests(unittest.TestCase):
 
         with self.assertRaisesRegex(BuildError, "failed with exit code 7"):
             build(board, self.root)
+
+    @unittest.skipUnless(shutil.which("cc"), "a C compiler is required for native recipe tests")
+    def test_source_recipe_builds_native_shared_library(self) -> None:
+        recipe_directory = self.root / "recipes" / "native"
+        recipe_directory.mkdir(parents=True)
+        (recipe_directory / "include").mkdir()
+        (recipe_directory / "build.py").write_text("pass\n", encoding="utf-8")
+        (recipe_directory / "native.c").write_text(
+            "int gothicos_native_probe(void) { return 42; }\n", encoding="utf-8"
+        )
+        recipe = recipe_directory / "build.json"
+        recipe.write_text(
+            json.dumps(
+                {
+                    "$schema": "../../src/gothicos/OSBuild/schema/osbuild.json",
+                    "@build": {
+                        "recipe": {
+                            "name": "native-probe",
+                            "type": "Native Components",
+                            "kernel-abi": "1.1.1",
+                            "entry": ["build.py"],
+                            "outputs": {
+                                "Native": {
+                                    "native.source.files": ["native.c"],
+                                    "native.include.dirs": ["include"],
+                                    "native.shared-library": "libprobe.so",
+                                }
+                            },
+                        }
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        actions = build(recipe, self.root, dry_run=True)
+
+        self.assertEqual(len(actions), 3)
+        self.assertEqual(actions[1].step_name, "compile native native.c")
+        self.assertEqual(actions[2].step_name, "link libprobe.so")
+        self.assertIn("-shared", actions[2].command)
+
+        build(recipe, self.root)
+        library = self.root / "build" / "native-probe" / "Native" / "libprobe.so"
+        self.assertTrue(library.is_file())
+        self.assertEqual(ctypes.CDLL(str(library)).gothicos_native_probe(), 42)
 
 
 if __name__ == "__main__":

@@ -12,6 +12,7 @@ The SDK packages everything needed to write applications for `nullkernRT`:
 | Path | Purpose |
 | --- | --- |
 | `gothicos_sdk/` | Host-side Python client, app manifest tooling, and `gothicos-sdk` CLI |
+| `umbra/` | UmbraTS lexer, parser, type checker, optimizer, and bytecode compiler |
 | `device/nullkern_sdk.py` | Tiny MicroPython client compiled alongside your app |
 | `toolchain/` | Cython host tools and the toolchain build script |
 | `include/gothicos/` | Stable C header contract for native clients |
@@ -51,6 +52,23 @@ An app manifest looks like this:
   "target": { "bytecode": "v6", "arch": "armv6m" }
 }
 ```
+
+## UmbraTS applications
+
+The SDK also compiles the supported UmbraTS subset directly to Umbra Bytecode:
+
+```sh
+gothicos-sdk new demo --language umbrats --directory SDK/examples
+gothicos-sdk build SDK/examples/demo --output build/demo
+gothicos-sdk umbra build SDK/examples/demo/main.uts --output demo.umb
+gothicos-sdk umbra check demo.umb
+gothicos-sdk umbra run demo.umb
+```
+
+`build` writes `.umb` files for `.uts` sources and leaves the existing `mpy-cross` path
+in place for `.py` sources. Umbra-only manifests report `bytecode: "umbra-0.1"`. See
+[UmbraTS documentation](../docs/UmbraTS.md) for the language subset, bytecode container,
+capability rules, and runtime model.
 
 On the device, `nullkern_sdk.KernelClient` wraps `kernel.abi.invoke`, so every call
 returns `(status, value)` and callbacks stay ordinary one-step Python functions.

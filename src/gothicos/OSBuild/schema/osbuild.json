@@ -343,9 +343,17 @@
     },
     "recipeOutput": {
       "type": "object",
-      "required": [
-        "micropython-bytecode",
-        "source.files"
+      "anyOf": [
+        {
+          "required": [
+            "source.files"
+          ]
+        },
+        {
+          "required": [
+            "native.source.files"
+          ]
+        }
       ],
       "properties": {
         "micropython-bytecode": {
@@ -364,6 +372,28 @@
             "type": "string",
             "minLength": 1
           }
+        },
+        "native.source.files": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "native.include.dirs": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "native.shared-library": {
+          "type": "string",
+          "minLength": 1
         }
       },
       "additionalProperties": true

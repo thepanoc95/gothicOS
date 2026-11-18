@@ -1,0 +1,24 @@
+{
+    "$schema": "../src/gothicos/OSBuild/schema/osbuild.json",
+    "@build": {
+        "recipe": {
+            "name": "NativeComponents",
+            "type": "Native Components",
+            "kernel-abi": "1.1.1",
+            "entry": [ "build.py" ],
+            "outputs": {
+                "Native": {
+                    "native.source.files": [
+                        "src/gothicos_native.c",
+                        "components/echo/echo_component.c"
+                    ],
+                    "native.include.dirs": [
+                        "include",
+                        "%PROJROOT/SDK/include"
+                    ],
+                    "native.shared-library": "libgothicos_native.so"
+                }
+            }
+        }
+    }
+}

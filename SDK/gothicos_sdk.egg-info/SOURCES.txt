@@ -11,4 +11,6 @@ gothicos_sdk.egg-info/dependency_links.txt
 gothicos_sdk.egg-info/entry_points.txt
 gothicos_sdk.egg-info/top_level.txt
 gothicos_sdk/templates/app.json.tmpl
+gothicos_sdk/templates/app.uts.json.tmpl
 gothicos_sdk/templates/main.py.tmpl
+gothicos_sdk/templates/main.uts.tmpl

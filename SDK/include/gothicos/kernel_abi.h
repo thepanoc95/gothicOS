@@ -122,6 +122,38 @@ typedef struct {
     int value;
 } gothicos_response_t;
 
+/* Canonical payloads carried through gothicos_invoke_fn.
+ *
+ * `arguments` is a gothicos_arguments_t pointer, or NULL when the operation takes
+ * no arguments. `result` is a gothicos_result_t pointer. Values with kind STRING
+ * are NUL-terminated UTF-8: borrowed from the caller for arguments, and valid
+ * until the next invoke for results. Native clients must copy result strings.
+ *
+ * This layout is language-neutral; C++, Rust, and firmware transports can all
+ * implement the same function-pointer signature without a MicroPython runtime.
+ */
+typedef enum {
+    GOTHICOS_VALUE_NONE = 0,
+    GOTHICOS_VALUE_INT = 1,
+    GOTHICOS_VALUE_STRING = 2
+} gothicos_value_kind_t;
+
+typedef struct {
+    gothicos_value_kind_t kind;
+    int integer;
+    const char *string;
+} gothicos_value_t;
+
+typedef struct {
+    const gothicos_value_t *items;
+    unsigned int count;
+} gothicos_arguments_t;
+
+typedef struct {
+    int status;
+    gothicos_value_t value;
+} gothicos_result_t;
+
 typedef int (*gothicos_invoke_fn)(int opcode, const void *arguments, void *result);
 
 const char *gothicos_status_name(int status);

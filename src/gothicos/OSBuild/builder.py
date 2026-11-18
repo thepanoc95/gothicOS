@@ -150,12 +150,14 @@ def _recipe_actions(
                 raise BuildError(
                     f"Output name is not a valid output directory name: {output_name!r}"
                 )
-            bytecode_version = output["micropython-bytecode"]
-            if not bytecode_version.startswith("v") or not bytecode_version[1:].isdigit():
+            python_sources = output.get("source.files", [])
+            native_sources = output.get("native.source.files", [])
+            if not python_sources and not native_sources:
                 raise BuildError(
-                    f"Unsupported MicroPython bytecode version {bytecode_version!r} "
-                    f"in output {output_name!r}; expected a version such as 'v6'"
+                    f"Output {output_name!r} declares neither source.files "
+                    f"nor native.source.files"
                 )
+
             mpy_cross_arch = output.get("mpy-cross-arch")
             if mpy_cross_arch is not None and (
                 not isinstance(mpy_cross_arch, str) or not mpy_cross_arch
@@ -165,7 +167,20 @@ def _recipe_actions(
                     f"in output {output_name!r}"
                 )
 
-            for source in output["source.files"]:
+            if python_sources:
+                bytecode_version = output.get("micropython-bytecode")
+                if bytecode_version is None:
+                    raise BuildError(
+                        f"Output {output_name!r} declares .py sources "
+                        f"but no micropython-bytecode"
+                    )
+                if not bytecode_version.startswith("v") or not bytecode_version[1:].isdigit():
+                    raise BuildError(
+                        f"Unsupported MicroPython bytecode version {bytecode_version!r} "
+                        f"in output {output_name!r}; expected a version such as 'v6'"
+                    )
+
+            for source in python_sources:
                 source_path = _resolve_recipe_file(
                     source,
                     recipe_path,
@@ -214,6 +229,83 @@ def _recipe_actions(
                         output_path=output_path,
                     )
                 )
+
+            object_paths: list[Path] = []
+            if native_sources:
+                cc = os.environ.get("GOTHICOS_CC", "cc")
+                include_dirs = [
+                    _resolve_recipe_directory(
+                        include,
+                        recipe_path,
+                        project_root,
+                        f"native include directory for output {output_name!r}",
+                    )
+                    for include in output.get("native.include.dirs", [])
+                ]
+                compiler_parts = [cc, "-std=c11", "-Wall", "-Wextra", "-fPIC", "-c"]
+                for directory in include_dirs:
+                    compiler_parts.extend(("-I", str(directory)))
+                compiler = tuple(compiler_parts)
+
+                for source in native_sources:
+                    source_path = _resolve_recipe_file(
+                        source,
+                        recipe_path,
+                        project_root,
+                        f"native source file for output {output_name!r}",
+                    )
+                    if source_path.suffix != ".c":
+                        raise BuildError(
+                            f"Output {output_name!r} does not support native source "
+                            f"{source_path.name!r}; expected .c"
+                        )
+                    relative_source = source_path.relative_to(project_root)
+                    output_path = (
+                        project_root
+                        / "build"
+                        / recipe_name
+                        / output_name
+                        / relative_source.with_suffix(".o")
+                    )
+                    object_paths.append(output_path)
+                    actions.append(
+                        BuildAction(
+                            recipe_path=recipe_path,
+                            recipe_name=recipe_name,
+                            step_name=f"compile native {source}",
+                            command=(*compiler, "-o", str(output_path), str(source_path)),
+                            cwd=project_root,
+                            env=recipe_environment,
+                            output_path=output_path,
+                        )
+                    )
+
+                library_name = output.get("native.shared-library")
+                if library_name is not None:
+                    if not _is_output_component(library_name):
+                        raise BuildError(
+                            f"Shared library name is not a valid output name: {library_name!r}"
+                        )
+                    library_path = (
+                        project_root / "build" / recipe_name / output_name / library_name
+                    )
+                    actions.append(
+                        BuildAction(
+                            recipe_path=recipe_path,
+                            recipe_name=recipe_name,
+                            step_name=f"link {library_name}",
+                            command=(
+                                cc,
+                                "-shared",
+                                "-o",
+                                str(library_path),
+                                *(str(path) for path in object_paths),
+                            ),
+                            cwd=project_root,
+                            env=recipe_environment,
+                            output_path=library_path,
+                        )
+                    )
         return actions
 
     recipe_name, steps = build["name"], build["steps"]
@@ -272,6 +364,26 @@ def _resolve_recipe_file(
         )
     if not resolved.is_file():
         raise BuildError(f"Unable to resolve {context} {value!r}: file does not exist")
+    return resolved
+
+
+def _resolve_recipe_directory(
+    value: str,
+    recipe_path: Path,
+    project_root: Path,
+    context: str,
+) -> Path:
+    resolved_value = value.replace(PROJECT_ROOT_TOKEN, str(project_root))
+    path = Path(resolved_value)
+    if not path.is_absolute():
+        path = recipe_path.parent / path
+    resolved = path.resolve()
+    if not resolved.is_relative_to(project_root):
+        raise BuildError(
+            f"{context.capitalize()} must be inside project root {project_root}: {value}"
+        )
+    if not resolved.is_dir():
+        raise BuildError(f"Unable to resolve {context} {value!r}: directory does not exist")
     return resolved
 
 

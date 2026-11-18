@@ -4,7 +4,7 @@ The SDK packages everything needed to write applications for `nullkernRT`:
 
 | Path | Purpose |
 | --- | --- |
-| `gothicos_sdk/` | Host-side Python client, app manifest tooling, and `gothicos-sdk` CLI |
+| `gothicos_sdk/` | Host-side Python client, app manifest tooling, native component loader, and `gothicos-sdk` CLI |
 | `umbra/` | UmbraTS lexer, parser, type checker, optimizer, and bytecode compiler |
 | `device/nullkern_sdk.py` | Tiny MicroPython client compiled alongside your app |
 | `toolchain/` | Cython host tools and the toolchain build script |
@@ -82,4 +82,6 @@ gothicos build --config SDK/build.json
 
 The SDK targets kernel ABI `>=1.0.0,<2.0.0` and mirrors v1.1.1 constants in
 `gothicos_sdk.abi`. `gothicos-sdk check` parses the `sdk`/`abi` constraints before a
-build. The C contract lives in `include/gothicos/kernel_abi.h`.
+build. The C contract lives in `include/gothicos/kernel_abi.h`; its client-side functions are
+implemented by the `native/` recipe, and `gothicos_sdk.NativeComponent` loads those native
+libraries through any `abi_invoke` callable. See [Native Components](../docs/NativeComponents.md).

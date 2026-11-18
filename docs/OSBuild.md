@@ -73,6 +73,22 @@ to C with Cython. Files retain their project-relative paths under
 generated C sources, not linked firmware. Other source extensions are rejected. All
 declared inputs must exist inside the project root.
 
+An output may instead (or also) declare native C sources:
+
+```json
+"Native": {
+  "native.source.files": ["src/gothicos_native.c"],
+  "native.include.dirs": ["include", "%PROJROOT/SDK/include"],
+  "native.shared-library": "libgothicos_native.so"
+}
+```
+
+Each `.c` input compiles to a `.o` with `cc -std=c11 -Wall -Wextra -fPIC`
+(override the compiler with `GOTHICOS_CC`). `native.include.dirs` are resolved
+like source paths and passed as `-I`. If `native.shared-library` is set, a final
+`-shared` link action writes the library next to the objects. Native outputs do
+not require `micropython-bytecode`; see [Native Components](NativeComponents.md).
+
 The recipe `name` and output names are also used as directory names and may contain
 letters, digits, `.`, `_`, and `-`. The `entry` and `source.files` arrays must be
 non-empty, and `outputs` must contain at least one collection. `.py` inputs require

@@ -54,6 +54,15 @@ receives, full queues, unsupported operations, permission failures, already-exis
 objects, out-of-memory, and internal task failures. Operation and status constants are
 exported by `internal/nullkern/abi.py` and mirrored by the SDK.
 
+## Native components
+
+[`native/`](native/) adds MicroPython-free C components that live beside nullkernRT.
+They implement a small `init`/`step`/`shutdown` descriptor and call the same v1.1.1 ABI
+through a `gothicos_invoke_fn` function pointer, so one library works with the Linux
+port and with firmware. The included echo component is built by
+`gothicos build --config native/build.json`; `gothicos_sdk.NativeComponent` loads it
+from Python. See [Native Components](docs/NativeComponents.md).
+
 ## SDK / Toolchain
 
 [`SDK/`](SDK/README.md) contains the application SDK: a host-side Python client and
