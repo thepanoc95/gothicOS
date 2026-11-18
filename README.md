@@ -52,7 +52,8 @@ soft-bus messaging, remote ability calls, and scheduling hints. Calls return
 `(status, value)`; status codes distinguish invalid arguments, missing tasks, blocked
 receives, full queues, unsupported operations, permission failures, already-existing
 objects, out-of-memory, and internal task failures. Operation and status constants are
-exported by `internal/nullkern/abi.py` and mirrored by the SDK.
+exported by `internal/nullkern/abi.py` and mirrored by the SDK. To boot the kernel on
+hardware, see [Starting nullkernRT on a Pico W](docs/PicoW.md).
 
 ## Native components
 
