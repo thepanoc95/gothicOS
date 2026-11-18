@@ -64,6 +64,60 @@ sudo make install
 `RAISE_IRQ`, `PORT_SEND`, and `SCHED_HINT`. They update counters and wake waiters; they do
 not execute application code.
 
+## Testing with um-arm64
+
+The [`linux-um-arm64`](https://github.com/zalexdev/linux-um-arm64) tree builds a
+`ARCH=um SUBARCH=arm64` kernel that runs as an ordinary aarch64 process and supports
+loadable modules, so `nullkern_lkm.ko` can be exercised inside the guest.
+
+```sh
+# Build the UML kernel (SUBARCH maps to an aarch64 target).
+# Use LLVM=1 only if that tree is configured for clang; gcc-built trees work too.
+make ARCH=um SUBARCH=arm64 -C /path/to/linux-um-arm64 defconfig
+make ARCH=um SUBARCH=arm64 -C /path/to/linux-um-arm64 -j$(nproc)
+
+# Build the out-of-tree nullkern module against that tree.
+# The target uses the tree's configured compiler; add LLVM=1 for a clang tree.
+make -C ports/linux KDIR=/path/to/linux-um-arm64 um-arm64
+```
+
+Running `./linux` with no arguments uses the defconfig default `root=98:0`, but
+without a `ubd0=` image there is no block device to mount. Attach a rootfs image:
+
+```sh
+./linux mem=512M ubd0=rootfs/alpine.ext4 root=/dev/ubda rw \
+        init=/bin/sh con=null con0=fd:0,fd:1
+```
+
+Copy `ports/linux/nullkern_lkm.ko` into that guest root filesystem, boot the UML
+kernel, then load it **inside the guest**:
+
+```sh
+insmod /nullkern_lkm.ko
+# With devtmpfs the module creates /dev/nullkern automatically; otherwise:
+# mknod /dev/nullkern c <major from /proc/devices> 0
+```
+
+The small C probe avoids needing CPython inside the guest. Build it for the guest
+architecture and run it after `insmod`:
+
+```sh
+make -C ports/linux probe
+# copy ports/linux/nullkern_ioctl_probe into the guest, then:
+./nullkern_ioctl_probe /dev/nullkern
+```
+
+It prints counter state before and after `RAISE_IRQ`, `PORT_SEND`, and
+`SCHED_HINT`, and exits nonzero unless each counter advanced by one.
+
+The ioctl structs use fixed-width `int32_t`/`uint64_t` fields, and the module's
+`BUILD_BUG_ON` checks assert the 24-byte request and 32-byte response layouts, so
+the ABI is valid on aarch64 as well as x86_64. Run the Cython client
+(`kernel_from_device("/dev/nullkern")`) inside the guest to drive the four
+ioctls. If your build host is x86_64, remember the resulting `linux` binary and
+guest userspace are aarch64: you need an aarch64 host or an emulator such as
+`qemu-aarch64` to run them.
+
 ## Native components
 
 The Cython port's `abi_invoke(opcode, *args)` can be passed directly to
