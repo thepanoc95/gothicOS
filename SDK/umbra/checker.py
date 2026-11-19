@@ -11,7 +11,7 @@ NATIVE_SIGNATURES = {
     "System.info": {"parameters": [], "returns": "unknown", "native": "INFO"},
     "System.yield": {"parameters": [], "returns": "void", "native": "YIELD"},
     "Port.send": {"parameters": ["string", "string"], "returns": "boolean", "native": "PORT_SEND"},
-    "Port.receive": {"parameters": ["string"], "returns": "string", "native": "PORT_RECEIVE"},
+    "Port.receive": {"parameters": ["string"], "returns": "unknown", "native": "PORT_RECEIVE"},
     "Memory.alloc": {"parameters": ["string", "string"], "returns": "uint32", "native": "MEM_ALLOC"},
     "Memory.free": {"parameters": ["string", "uint32"], "returns": "void", "native": "MEM_FREE"},
     "Interrupt.timer": {"parameters": [], "returns": "void", "native": "IRQ_TIMER"},

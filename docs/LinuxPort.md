@@ -10,7 +10,9 @@ libc; the LKM therefore contains no Python runtime.
 | --- | --- |
 | [`ports/linux/linux_port.pyx`](../ports/linux/linux_port.pyx) | Cython extension implementing the Linux NULLKern runtime and char-device client |
 | [`ports/linux/include/gothicos_linux_port.h`](../ports/linux/include/gothicos_linux_port.h) | Shared ioctl/struct contract |
-| [`ports/linux/nullkern_lkm.c`](../ports/linux/nullkern_lkm.c) | Thin C character device (`/dev/nullkern`) |
+| [`ports/linux/nullkern_lkm.c`](../ports/linux/nullkern_lkm.c) | C character device (`/dev/nullkern`) and confined handoff; compiles the native core and handoff machine into the module |
+| [`kernel/core/c/nk_core.c`](../kernel/core/c/nk_core.c) | Freestanding core shared by the module, SDK and MicroPython facade |
+| [`kernel/linux/handoff.c`](../kernel/linux/handoff.c) | Platform-neutral opt-in handoff state machine |
 | [`ports/linux/build.py`](../ports/linux/build.py) | Cython-to-C translation script |
 | [`ports/linux/setup.py`](../ports/linux/setup.py) | Optional CPython extension build |
 | [`ports/linux/Makefile`](../ports/linux/Makefile) | Kernel module and extension targets |
@@ -60,9 +62,39 @@ make
 sudo make install
 ```
 
-`make uninstall` removes the module. The LKM exposes four ioctls: `GET_INFO`,
-`RAISE_IRQ`, `PORT_SEND`, and `SCHED_HINT`. They update counters and wake waiters; they do
-not execute application code.
+`make uninstall` removes the module. The LKM exposes seven ioctls: the original
+`GET_INFO`, `RAISE_IRQ`, `PORT_SEND`, and `SCHED_HINT`, plus `HANDOFF_STATUS`,
+`HANDOFF_START`, and `HANDOFF_STOP`. The first four update counters and wake waiters; they
+do not execute application code. The handoff ioctls are described below.
+
+## Confined handoff
+
+The default module is passive. To run NullKern on managed CPUs, an operator must opt in
+with `insmod nullkern_lkm.ko handoff=1` or call `HANDOFF_START` with `enabled=1` from a
+process with `CAP_SYS_ADMIN`.
+
+```python
+from gothicos_linux_port import LinuxPort
+
+port = LinuxPort("/dev/nullkern")
+print(port.handoff_status())
+print(port.handoff_start(first_managed_cpu=1, managed_cpu_count=2))
+port.handoff_stop()
+```
+
+Safety rules:
+
+- CPU 0 is never handed over. `first_managed_cpu` defaults to 1; the binding hook rejects
+  0, out-of-range CPUs and CPUs outside the configured range.
+- Only NullKern-owned kthreads are created and bound to managed CPUs. No host process is
+  enumerated or terminated.
+- The init ELF path and shell path default to `/lib/gothicos/system/init.d.elf` and
+  `/lib/gothicos/user/bin/sh.uts`. The ELF is opened, magic-checked and size-limited; it
+  is retained but not executed in kernel mode until a sandbox loader is registered.
+- `HANDOFF_STOP` or module unload stops the kthreads and releases the native core.
+
+This is intended for lab and UML testing only. See
+[Native migration](NativeMigration.md) for the full state machine and build instructions.
 
 ## Testing with um-arm64
 

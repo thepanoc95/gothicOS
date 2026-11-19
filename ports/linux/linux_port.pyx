@@ -13,6 +13,9 @@ cdef extern from "gothicos_linux_port.h":
     unsigned int GOTHICOS_LKM_IOC_RAISE_IRQ
     unsigned int GOTHICOS_LKM_IOC_PORT_SEND
     unsigned int GOTHICOS_LKM_IOC_SCHED_HINT
+    unsigned int GOTHICOS_LKM_IOC_HANDOFF_STATUS
+    unsigned int GOTHICOS_LKM_IOC_HANDOFF_START
+    unsigned int GOTHICOS_LKM_IOC_HANDOFF_STOP
     int GOTHICOS_LKM_OP_RAISE_IRQ
     int GOTHICOS_LKM_OP_PORT_SEND
     int GOTHICOS_LKM_OP_SCHED_HINT
@@ -159,6 +162,56 @@ cdef class LinuxPort:
 
     def schedule_hint(self, node_id, score):
         return self.control(GOTHICOS_LKM_OP_SCHED_HINT, node_id, score, 0)
+
+    def handoff_status(self):
+        cdef bytes response
+
+        if not self.open():
+            return {"available": False, "device": self.device_path, "state": "unavailable"}
+        response = fcntl.ioctl(
+            self._file.fileno(), GOTHICOS_LKM_IOC_HANDOFF_STATUS, bytearray(512)
+        )
+        values = struct.unpack("<8I", response[:32])
+
+        def text(offset):
+            raw = response[offset:offset + 160]
+            return raw.split(b"\x00", 1)[0].decode("utf-8", "replace")
+
+        return {
+            "available": True,
+            "device": self.device_path,
+            "state": values[0],
+            "enabled": bool(values[1]),
+            "first_managed_cpu": values[2],
+            "managed_cpu_count": values[3],
+            "bound_cpu_count": values[4],
+            "started_services": values[5],
+            "init_image_size": values[6],
+            "init_path": text(32),
+            "shell_path": text(192),
+            "error": text(352),
+        }
+
+    def handoff_start(self, enabled=True, first_managed_cpu=1, managed_cpu_count=0):
+        cdef bytes command
+
+        if not enabled:
+            return {"available": self.open(), "started": False,
+                    "error": "handoff is opt-in and requires enabled=True"}
+        if first_managed_cpu == 0:
+            return {"available": self.open(), "started": False,
+                    "error": "CPU 0 is reserved for Linux"}
+        if not self.open():
+            return {"available": False, "started": False, "error": "device unavailable"}
+        command = struct.pack("<4I", 1, first_managed_cpu, managed_cpu_count, 0)
+        fcntl.ioctl(self._file.fileno(), GOTHICOS_LKM_IOC_HANDOFF_START, command)
+        return self.handoff_status()
+
+    def handoff_stop(self):
+        if not self.open():
+            return {"available": False, "device": self.device_path, "state": "unavailable"}
+        fcntl.ioctl(self._file.fileno(), GOTHICOS_LKM_IOC_HANDOFF_STOP)
+        return self.handoff_status()
 
 
 cdef class LinuxKernel:

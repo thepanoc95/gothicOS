@@ -120,6 +120,10 @@ Native bindings are checked twice: at load, every native call must be covered by
 `@Capability` declaration and granted by the kernel; at call time, the corresponding
 kernel capability is required again. Declaring a capability never grants it by itself.
 
+`Port.receive` is dynamically typed because kernel ports can carry strings, integers and
+other values. Its checker type is `unknown`, so it can be assigned to the declared UmbraTS
+type that the application expects.
+
 ## CLI
 
 ```sh

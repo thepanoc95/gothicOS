@@ -6,7 +6,8 @@ PWD := $(shell pwd)
 # Extra kbuild variables, e.g. KERNEL_ARGS="ARCH=um SUBARCH=arm64 LLVM=1".
 KERNEL_ARGS ?=
 
-ccflags-y += -I$(src)/include
+ccflags-y += -I$(src)/include -I$(src)/../../SDK/include \
+	-I$(src)/../../kernel/core/include -I$(src)/../../kernel/linux/include
 CC ?= cc
 PROBE ?= nullkern_ioctl_probe
 

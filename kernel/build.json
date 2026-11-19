@@ -1,0 +1,16 @@
+{
+    "$schema": "../src/gothicos/OSBuild/schema/osbuild.json",
+    "@build": {
+        "name": "native-kernel-stack",
+        "steps": [
+            {
+                "name": "build-native-stack",
+                "run": [ "make", "-C", "%PROJROOT/kernel", "all" ]
+            },
+            {
+                "name": "test-native-stack",
+                "run": [ "make", "-C", "%PROJROOT/kernel", "test" ]
+            }
+        ]
+    }
+}

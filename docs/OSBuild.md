@@ -38,6 +38,11 @@ Command recipes are ordered command steps:
 sequentially; OSBuild stops at the first launch or nonzero-exit error. `cwd` defaults
 to the project root and `env` adds variables to the inherited environment.
 
+The native stack uses this form in
+[`kernel/build.json`](../kernel/build.json): C, C++ and Cargo builds are driven by
+`kernel/Makefile` because source recipes currently accept only `.py`, `.pyx` and `.c`
+inputs.
+
 ## Source recipes
 
 Source recipes compile declared files into a named output collection:
@@ -93,6 +98,10 @@ The recipe `name` and output names are also used as directory names and may cont
 letters, digits, `.`, `_`, and `-`. The `entry` and `source.files` arrays must be
 non-empty, and `outputs` must contain at least one collection. `.py` inputs require
 `mpy-cross`; `.pyx` inputs require Cython.
+
+The MicroPython chainloader uses
+[`ports/micropython/build.json`](../ports/micropython/build.json): `.py` sources become
+`.mpy` modules and `build.py` prepares the flash tree with `init.d.elf` and `sh.umb`.
 
 Optional `kernel-abi` metadata must be `MAJOR.MINOR.PATCH`; OSBuild exports it to entry
 and compile actions as `GOTHICOS_KERNEL_ABI`. The nullkern v1 ABI is defined in

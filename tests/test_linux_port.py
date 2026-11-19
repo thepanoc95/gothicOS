@@ -32,6 +32,8 @@ class LinuxPortBuildTests(unittest.TestCase):
             self.assertTrue(generated[0].is_file())
             source = generated[0].read_text(encoding="utf-8")
             self.assertIn("gothicos_linux_port.h", source)
+            self.assertIn("handoff_status", source)
+            self.assertIn("handoff_start", source)
             self.assertGreater(len(source), 1000)
 
     def test_shared_ioctl_header_is_in_sync(self):
@@ -40,6 +42,10 @@ class LinuxPortBuildTests(unittest.TestCase):
         self.assertIn("GOTHICOS_LKM_IOC_RAISE_IRQ", header)
         self.assertIn("GOTHICOS_LKM_IOC_PORT_SEND", header)
         self.assertIn("GOTHICOS_LKM_IOC_SCHED_HINT", header)
+        self.assertIn("GOTHICOS_LKM_IOC_HANDOFF_STATUS", header)
+        self.assertIn("GOTHICOS_LKM_IOC_HANDOFF_START", header)
+        self.assertIn("GOTHICOS_LKM_IOC_HANDOFF_STOP", header)
+        self.assertIn("gothicos_lkm_handoff_info_t", header)
 
 
 if __name__ == "__main__":

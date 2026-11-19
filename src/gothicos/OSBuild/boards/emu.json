@@ -1,0 +1,6 @@
+{
+    "$schema": "../schema/osbuild.json",
+    "@board": {
+        "name": "emulator"
+    }
+}

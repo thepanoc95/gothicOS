@@ -1,0 +1,25 @@
+{
+    "$schema": "../../src/gothicos/OSBuild/schema/osbuild.json",
+    "@build": {
+        "recipe": {
+            "name": "MicroPythonPort",
+            "type": "MicroPython Chainloader",
+            "kernel-abi": "1.1.1",
+            "entry": [ "build.py" ],
+            "outputs": {
+                "Chainloader": {
+                    "micropython-bytecode": "v6",
+                    "mpy-cross-arch": "armv6m",
+                    "source.files": [
+                        "boot_config.py",
+                        "elf.py",
+                        "null_kernel.py",
+                        "umbra_shell.py",
+                        "osloader.py",
+                        "null.py"
+                    ]
+                }
+            }
+        }
+    }
+}

@@ -20,6 +20,12 @@ native component library  --ABI opcodes-->  nullkernRT Kernel.abi.invoke
 ports, memory pools, soft bus, nodes, abilities
 ```
 
+The native core stack in [`kernel/`](../kernel) can also be the host itself: the freestanding
+C core is reached through `nk_invoke()`, then wrapped by the C++/Rust HAL and KAL. Native
+components keep using the same `gothicos_invoke_fn` transport; see
+[Native migration](NativeMigration.md) for the full layer map. C++ drivers live in
+`kernel/drivers/cpp` and register with the KAL rather than importing MicroPython.
+
 A component implements this descriptor from
 [`native_component.h`](../native/include/gothicos/native_component.h):
 
