@@ -1,0 +1,28 @@
+{
+    "$schema": "../src/gothicos/OSBuild/schema/osbuild.json",
+    "@build": {
+        "name": "nullk-baremetal",
+        "steps": [
+            {
+                "name": "test-nullk-host",
+                "run": [ "make", "-C", "%PROJROOT/nullk", "test" ]
+            },
+            {
+                "name": "build-nullk-arm",
+                "run": [ "make", "-C", "%PROJROOT/nullk", "CROSS=arm-none-eabi-", "all" ]
+            },
+            {
+                "name": "build-nullk-pico-w-sdk",
+                "run": [
+                    "cmake", "-S", "%PROJROOT/nullk/pico", "-B", "%PROJROOT/build/NullKernel/pico", "-DPICO_BOARD=pico_w"
+                ]
+            },
+            {
+                "name": "build-nullk-pico-w",
+                "run": [
+                    "cmake", "--build", "%PROJROOT/build/NullKernel/pico", "-j4"
+                ]
+            }
+        ]
+    }
+}
