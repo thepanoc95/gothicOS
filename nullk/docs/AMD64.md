@@ -117,6 +117,14 @@ The `mem` commands are confined to a 64 KiB sandbox obtained with
 `nk64_mmap(0, 64*1024, NK64_MM_SANDBOX | NK64_MM_USER)`; every access is
 bounds-checked by `nk_sandbox_*`. Entering `exit` calls `nk64_exit(0)`.
 
+## SecureKernel
+
+Every `exec` in the userspace shell is checked by the C++ SecureKernel layer
+before `nk64_exec()` is issued. It scans ELF symbols/strings for suspicious
+names, verifies `NKSIGv1` signatures when present, and denies tampered or
+suspicious images. See `SECUREKERNEL.md` for the policy, signature format,
+signer, and C ABI. The service announces itself as ring-3 task 2 at boot.
+
 ## USB-as-SATA protocol
 
 `usb64` makes an internal SATA drive look like a USB mass-storage device to

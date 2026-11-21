@@ -10,6 +10,9 @@
 #include "libnk64.h"
 #include "nullk/printk.h"
 
+/* C ABI entry point from the userspace SecureKernel C++ layer. */
+void securekernel_service_entry(void);
+
 static const char *const vfs_checks[] = {
     "@/",
     "@/data",
@@ -51,6 +54,7 @@ static void report_vfs(void)
 void _start(void)
 {
     nk64_info_t info;
+    uint64_t secure_id;
     uint64_t usb_id;
     uint64_t shell_id;
     uint32_t rc;
@@ -80,12 +84,21 @@ void _start(void)
 
     report_vfs();
 
-    /* Both services live in this ELF image; only the kernel is in ring 0. */
+    /* All services live in this ELF image; only the kernel is in ring 0. */
+    secure_id = nk64_task_create("SecureKernel", securekernel_service_entry,
+                                 0, 0);
+    if (secure_id == 0) {
+        nk_printf("[init64] failed to start SecureKernel service\n");
+        log_line(NK_KERN_ERR, "[init64] SecureKernel task create failed");
+        nk64_exit(3);
+    }
+    nk_printf("[init64] SecureKernel task id=%u\n", (uint32_t)secure_id);
+
     usb_id = nk64_task_create("usb64", usb_service_entry, 0, 0);
     if (usb_id == 0) {
         nk_printf("[init64] failed to start usb64 service\n");
         log_line(NK_KERN_ERR, "[init64] usb64 task create failed");
-        nk64_exit(3);
+        nk64_exit(4);
     }
     nk_printf("[init64] usb64 task id=%u\n", (uint32_t)usb_id);
 
@@ -93,7 +106,7 @@ void _start(void)
     if (shell_id == 0) {
         nk_printf("[init64] failed to start nksh service\n");
         log_line(NK_KERN_ERR, "[init64] nksh task create failed");
-        nk64_exit(4);
+        nk64_exit(5);
     }
     nk_printf("[init64] nksh task id=%u\n", (uint32_t)shell_id);
 

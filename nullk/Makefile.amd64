@@ -10,6 +10,7 @@ OUT := $(BUILD)/amd64
 HOST_OUT := $(BUILD)/host_amd64
 
 CC ?= gcc
+CXX ?= g++
 LD ?= ld
 OBJCOPY ?= objcopy
 PYTHON ?= python3
@@ -19,9 +20,17 @@ COMMON_FLAGS := -std=c11 -ffreestanding -fno-builtin -fno-stack-protector \
                 -fno-pic -fno-pie -fno-asynchronous-unwind-tables \
                 -Iinclude -Ink -Iapps/include
 KERNEL_CFLAGS := $(COMMON_FLAGS) -Werror -mcmodel=kernel
-USER_CFLAGS := $(COMMON_FLAGS) -Werror
+USER_CFLAGS := $(COMMON_FLAGS) -Werror -Isecurekernel/include
+USER_CXXFLAGS := -std=c++17 -ffreestanding -fno-builtin -fno-stack-protector \
+                 -nostdlib -Wall -Wextra -Werror -O2 -m64 -mno-red-zone \
+                 -fno-pic -fno-pie -fno-asynchronous-unwind-tables \
+                 -fno-exceptions -fno-rtti -fno-threadsafe-statics \
+                 -Iinclude -Ink -Iapps/include -Isecurekernel -Isecurekernel/include
 HOST_CFLAGS := -std=c11 -Wall -Wextra -Werror -O2 -Iinclude -Iapps/include \
                -DNK_ARCH_HOST
+HOST_CXXFLAGS := -std=c++17 -Wall -Wextra -Werror -O2 \
+                 -Iinclude -Iapps/include -Isecurekernel -Isecurekernel/include \
+                 -DNK_ARCH_HOST
 
 KERNEL_ELF := $(OUT)/null_kernel_amd64.elf
 KERNEL_BIN := $(OUT)/null_kernel_amd64.bin
@@ -41,13 +50,22 @@ KERNEL_OBJ := $(patsubst %.c,$(OUT)/obj/%.o,$(KERNEL_SRC)) \
 USER_SRC := apps/init64/main.c apps/sh64/main.c apps/usb64/main.c \
             apps/libnk64.c shared/shell64.c shared/sandbox.c \
             shared/usb_as_sata.c shared/printk.c
-USER_OBJ := $(patsubst %.c,$(OUT)/obj/user/%.o,$(USER_SRC))
+USER_CXX_SRC := securekernel/OSSecureAPI.cpp securekernel/src/api.cpp \
+                securekernel/src/sha256.cpp securekernel/src/engine.cpp
+USER_OBJ := $(patsubst %.c,$(OUT)/obj/user/%.o,$(USER_SRC)) \
+            $(patsubst %.cpp,$(OUT)/obj/user/%.o,$(USER_CXX_SRC))
 
 HOST_SRC := shared/printk.c shared/vfs.c shared/elf64.c shared/acpi.c \
             shared/sandbox.c shared/shell64.c shared/usb_as_sata.c \
             tests/test_amd64.c
 HOST_OBJ := $(patsubst %.c,$(HOST_OUT)/%.o,$(HOST_SRC))
 HOST_BIN := $(HOST_OUT)/test_amd64
+
+SECURE_TEST_SRC := securekernel/src/api.cpp securekernel/src/sha256.cpp \
+                   securekernel/src/engine.cpp \
+                   securekernel/tests/test_securekernel.cpp
+SECURE_TEST_OBJ := $(patsubst %.cpp,$(HOST_OUT)/%.o,$(SECURE_TEST_SRC))
+SECURE_TEST_BIN := $(HOST_OUT)/test_securekernel
 
 .PHONY: all test qemu clean limine
 
@@ -64,6 +82,10 @@ $(OUT)/obj/%.o: %.S
 $(OUT)/obj/user/%.o: %.c
 	@mkdir -p $(dir $@)
 	$(CC) $(USER_CFLAGS) -c $< -o $@
+
+$(OUT)/obj/user/%.o: %.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(USER_CXXFLAGS) -c $< -o $@
 
 $(KERNEL_ELF): $(KERNEL_OBJ) arch/amd64/linker.ld
 	@mkdir -p $(dir $@)
@@ -88,12 +110,21 @@ $(HOST_OUT)/%.o: %.c
 	@mkdir -p $(dir $@)
 	$(CC) $(HOST_CFLAGS) -c $< -o $@
 
+$(HOST_OUT)/%.o: %.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(HOST_CXXFLAGS) -c $< -o $@
+
 $(HOST_BIN): $(HOST_OBJ)
 	@mkdir -p $(dir $@)
 	$(CC) $(HOST_CFLAGS) -o $@ $(HOST_OBJ)
 
-test: $(HOST_BIN)
+$(SECURE_TEST_BIN): $(SECURE_TEST_OBJ)
+	@mkdir -p $(dir $@)
+	$(CXX) $(HOST_CXXFLAGS) -o $@ $(SECURE_TEST_OBJ)
+
+test: $(HOST_BIN) $(SECURE_TEST_BIN)
 	$(HOST_BIN)
+	$(SECURE_TEST_BIN)
 
 # Booting requires Limine's bootloader files. Set LIMINE_DIR to the directory
 # containing them. Both the classic names (limine.sys / limine-cd.bin /

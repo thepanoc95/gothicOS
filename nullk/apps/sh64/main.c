@@ -9,11 +9,14 @@
 
 #include "libnk64.h"
 #include "nullk/printk.h"
+#include "nullk/securekernel.h"
 #include "nullk/shell64.h"
 
 #define SH_SANDBOX_BYTES (64u * 1024u)
+#define SH_READ_CHUNK 2048u
 
 static nk_shell64_ctx_t shell_ctx;
+static uint8_t g_exec_image[NK_SECUREKERNEL_MAX_IMAGE];
 
 static nk_status_t sh_stat(const char *path, nk_vfs_stat_t *out)
 {
@@ -82,8 +85,73 @@ static nk_status_t sh_read(const char *path, uint32_t offset, void *buf,
     return NK_STATUS_OK;
 }
 
+/* Read a whole file into the SecureKernel staging buffer. ABI reads are capped
+ * at 4 KiB, so use smaller chunks and advance the handle each time. */
+static nk_status_t sh_read_all(const char *path, uint8_t *buf, uint32_t cap,
+                               uint32_t *out_len)
+{
+    nk_vfs_stat_t st;
+    uint64_t handle;
+    uint32_t total = 0u;
+
+    if (out_len != NULL) {
+        *out_len = 0u;
+    }
+    if (nk64_stat(path, &st) != 0 || st.type != NK_VFS_FILE) {
+        return NK_STATUS_NOT_FOUND;
+    }
+    if (st.size > cap) {
+        return NK_STATUS_INVALID_ARGUMENT;
+    }
+    handle = nk64_open(path, NK64_OPEN_READ);
+    if (handle == 0) {
+        return NK_STATUS_NOT_FOUND;
+    }
+    while (total < cap) {
+        uint32_t chunk = cap - total;
+        int64_t got;
+
+        if (chunk > SH_READ_CHUNK) {
+            chunk = SH_READ_CHUNK;
+        }
+        got = nk64_read((uint32_t)handle, buf + total, chunk);
+        if (got <= 0) {
+            break;
+        }
+        total += (uint32_t)got;
+    }
+    (void)nk64_close(handle);
+    if (out_len != NULL) {
+        *out_len = total;
+    }
+    return NK_STATUS_OK;
+}
+
 static nk_status_t sh_exec(const char *path)
 {
+    nk_secure_report_t report;
+    uint32_t len = 0u;
+    nk_status_t status;
+    int rc;
+
+    status = sh_read_all(path, g_exec_image, (uint32_t)sizeof(g_exec_image),
+                         &len);
+    if (status != NK_STATUS_OK) {
+        return status;
+    }
+    rc = nk_securekernel_verify(g_exec_image, len, &report);
+    if (rc != 0) {
+        nk_printf("[nksh] SecureKernel rejected verification request (%u)\n",
+                  (uint32_t)rc);
+        return NK_STATUS_INTERNAL_ERROR;
+    }
+    if (report.decision != (uint32_t)NK_SECURE_DECISION_ALLOW) {
+        nk_printf("[nksh] SecureKernel blocked %s: %s\n", path, report.detail);
+        return NK_STATUS_PERMISSION_DENIED;
+    }
+    if ((report.flags & (uint32_t)NK_SECURE_FLAG_UNSIGNED) != 0u) {
+        nk_printf("[nksh] SecureKernel warning: %s\n", report.detail);
+    }
     return (nk_status_t)nk64_exec(path);
 }
 
