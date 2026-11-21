@@ -97,13 +97,16 @@ NK64_EXCEPTION_LIST(NK64_DECLARE_EXC)
 #undef NK64_DECLARE_EXC
 
 extern void nk64_irq_0(void);
+extern void nk64_irq_1(void);
 extern void nk64_irq_8(void);
+extern void nk64_irq_12(void);
 
 static nk64_idt_entry_t nk64_idt[NK64_IDT_ENTRIES] __attribute__((aligned(16)));
 static nk64_gdt_entry_t nk64_gdt[8] __attribute__((aligned(16)));
 static nk64_tss_t nk64_tss __attribute__((aligned(16)));
 static uint8_t nk64_exception_stack[16384] __attribute__((aligned(16)));
-static uint8_t nk64_pic_mask = 0xffu;
+static uint8_t nk64_pic1_mask = 0xffu;
+static uint8_t nk64_pic2_mask = 0xffu;
 
 static const char *const nk64_exception_names[NK64_IDT_ENTRIES / 8u] = {
     "divide by zero",
@@ -257,7 +260,9 @@ void nk64_idt_init(void)
 #undef NK64_SET_EXC
 
     nk64_idt_set(0x20u, (uint64_t)(uintptr_t)nk64_irq_0);
+    nk64_idt_set(0x21u, (uint64_t)(uintptr_t)nk64_irq_1);
     nk64_idt_set(0x28u, (uint64_t)(uintptr_t)nk64_irq_8);
+    nk64_idt_set(0x2cu, (uint64_t)(uintptr_t)nk64_irq_12);
 
     idtr.limit = (uint16_t)(sizeof(nk64_idt) - 1u);
     idtr.base = (uint64_t)(uintptr_t)nk64_idt;
@@ -276,9 +281,27 @@ void nk64_pic_init(void)
     nk64_outb(NK64_PIC1_DATA, 0x01u);
     nk64_outb(NK64_PIC2_DATA, 0x01u);
 
-    nk64_pic_mask = 0xffu;
-    nk64_outb(NK64_PIC1_DATA, nk64_pic_mask);
-    nk64_outb(NK64_PIC2_DATA, nk64_pic_mask);
+    nk64_pic1_mask = 0xffu;
+    nk64_pic2_mask = 0xffu;
+    nk64_outb(NK64_PIC1_DATA, nk64_pic1_mask);
+    nk64_outb(NK64_PIC2_DATA, nk64_pic2_mask);
+}
+
+void nk64_pic_unmask(uint8_t irq)
+{
+    if (irq >= 16u) {
+        return;
+    }
+    if (irq < 8u) {
+        nk64_pic1_mask &= (uint8_t)~(1u << irq);
+        nk64_outb(NK64_PIC1_DATA, nk64_pic1_mask);
+    } else {
+        nk64_pic2_mask &= (uint8_t)~(1u << (irq - 8u));
+        nk64_outb(NK64_PIC2_DATA, nk64_pic2_mask);
+        /* PIC2 interrupts also need the cascade line (master IRQ2) open. */
+        nk64_pic1_mask &= (uint8_t)~(1u << 2u);
+        nk64_outb(NK64_PIC1_DATA, nk64_pic1_mask);
+    }
 }
 
 void nk64_timer_init(uint32_t hz)
@@ -300,8 +323,8 @@ void nk64_timer_init(uint32_t hz)
     nk64_outb(NK64_PIT_BASE, (uint8_t)(divisor & 0xffu));
     nk64_outb(NK64_PIT_BASE, (uint8_t)(divisor >> 8));
 
-    nk64_pic_mask &= (uint8_t)~(1u << 0); /* unmask PIT (IRQ 0) */
-    nk64_outb(NK64_PIC1_DATA, nk64_pic_mask);
+    nk64_pic1_mask &= (uint8_t)~(1u << 0); /* unmask PIT (IRQ 0) */
+    nk64_outb(NK64_PIC1_DATA, nk64_pic1_mask);
 }
 
 void nk64_irq_enable(void)

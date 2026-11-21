@@ -5,7 +5,9 @@
  * Exported symbols (consumed by idt.c and the task layer):
  *   nk64_exc_0 .. nk64_exc_31 : exception stubs (errors: 8,10-14,17,21,29,30)
  *   nk64_irq_0                 : PIT  -> nk64_timer_handler()
+ *   nk64_irq_1                 : PS/2 keyboard -> nk64_keyboard_handler()
  *   nk64_irq_8                 : spurious -> nk64_spurious_handler()
+ *   nk64_irq_12                : PS/2 mouse -> nk64_mouse_handler()
  *   nk64_syscall_entry         : SYSCALL entry, +1 argument in r10
  *   nk64_usermode_jump(rsp,rip,cr3)
  *   nk64_context_switch(uint64_t *old_rsp, uint64_t new_rsp)
@@ -171,7 +173,9 @@ nk64_irq_\num:
 .endm
 
 NK64_IRQ_STUB 0, nk64_timer_handler, 0
+NK64_IRQ_STUB 1, nk64_keyboard_handler, 0
 NK64_IRQ_STUB 8, nk64_spurious_handler, 1
+NK64_IRQ_STUB 12, nk64_mouse_handler, 1
 
 /* ----------------------------------------------------------------- syscalls */
 

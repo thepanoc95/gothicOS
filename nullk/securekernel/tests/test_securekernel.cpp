@@ -201,12 +201,201 @@ static void test_bad_input(void)
           nk_securekernel_verify(junk, (uint32_t)sizeof(junk), nullptr) != 0);
 }
 
+static void set_label(char *dst, const char *name)
+{
+    std::strncpy(dst, name, NK_SECURE_LABEL_MAX - 1u);
+    dst[NK_SECURE_LABEL_MAX - 1u] = '\0';
+}
+
+static void test_policy_builtin(void)
+{
+    nk_secure_policy_t policy;
+    nk_secure_label_t label;
+    nk_secure_report_t report;
+
+    CHECK("builtin policy available",
+          nk_securekernel_policy_builtin(&policy) == 0 &&
+              policy.rule_count > 0u && policy.path_count > 0u);
+    CHECK("builtin policy is default-deny",
+          policy.default_decision == (uint8_t)NK_SECURE_DECISION_DENY);
+
+    CHECK("system path labelled",
+          nk_securekernel_label_path("@/data/system/null_kernel.elf",
+                                     &label) == 0 &&
+              std::strcmp(label.name, NK_SECURE_OBJECT_SYSTEM) == 0);
+    CHECK("user path labelled",
+          nk_securekernel_label_path("@/data/user/app.elf", &label) == 0 &&
+              std::strcmp(label.name, NK_SECURE_OBJECT_USER) == 0);
+    CHECK("usb path labelled",
+          nk_securekernel_label_path("@/usb/program.elf", &label) == 0 &&
+              std::strcmp(label.name, NK_SECURE_OBJECT_USB) == 0);
+    CHECK("unknown path labelled",
+          nk_securekernel_label_path("@/elsewhere/x", &label) == 0 &&
+              std::strcmp(label.name, NK_SECURE_OBJECT_UNKNOWN) == 0);
+
+    CHECK("shell cannot exec system image",
+          nk_securekernel_check(NK_SECURE_SUBJECT_SHELL,
+                                "@/data/system/null_kernel.elf",
+                                (uint32_t)NK_SECURE_OP_EXEC, &report) == 0 &&
+              report.decision == (uint32_t)NK_SECURE_DECISION_DENY &&
+              (report.flags & (uint32_t)NK_SECURE_FLAG_POLICY_DENY) != 0u);
+    CHECK("shell can exec user image",
+          nk_securekernel_check(NK_SECURE_SUBJECT_SHELL,
+                                "@/data/user/app.elf",
+                                (uint32_t)NK_SECURE_OP_EXEC, &report) == 0 &&
+              report.decision == (uint32_t)NK_SECURE_DECISION_ALLOW);
+    CHECK("shell can read system image",
+          nk_securekernel_check(NK_SECURE_SUBJECT_SHELL,
+                                "@/data/system/null_kernel.elf",
+                                (uint32_t)NK_SECURE_OP_READ, &report) == 0 &&
+              report.decision == (uint32_t)NK_SECURE_DECISION_ALLOW);
+    CHECK("shell cannot write user image",
+          nk_securekernel_check(NK_SECURE_SUBJECT_SHELL,
+                                "@/data/user/app.elf",
+                                (uint32_t)NK_SECURE_OP_WRITE, &report) == 0 &&
+              report.decision == (uint32_t)NK_SECURE_DECISION_DENY);
+    CHECK("service can load usb payload",
+          nk_securekernel_check(NK_SECURE_SUBJECT_SERVICE,
+                                "@/usb/program.elf",
+                                (uint32_t)NK_SECURE_OP_LOAD, &report) == 0 &&
+              report.decision == (uint32_t)NK_SECURE_DECISION_ALLOW);
+    CHECK("unknown subject denied",
+          nk_securekernel_check("nobody_t", "@/data/user/app.elf",
+                                (uint32_t)NK_SECURE_OP_EXEC, &report) == 0 &&
+              report.decision == (uint32_t)NK_SECURE_DECISION_DENY);
+}
+
+static void test_policy_custom(void)
+{
+    nk_secure_policy_t policy;
+    nk_secure_report_t report;
+
+    std::memset(&policy, 0, sizeof(policy));
+    policy.default_decision = (uint8_t)NK_SECURE_DECISION_DENY;
+    policy.path_count = 1u;
+    std::strncpy(policy.paths[0].prefix, "@/allow/",
+                 NK_SECURE_PATH_MAX - 1u);
+    policy.paths[0].prefix[NK_SECURE_PATH_MAX - 1u] = '\0';
+    set_label(policy.paths[0].object.name, NK_SECURE_OBJECT_USER);
+
+    policy.rule_count = 1u;
+    set_label(policy.rules[0].subject.name, NK_SECURE_SUBJECT_SHELL);
+    set_label(policy.rules[0].object.name, NK_SECURE_OBJECT_USER);
+    policy.rules[0].operations = (uint32_t)NK_SECURE_OP_BIT(NK_SECURE_OP_EXEC);
+    policy.rules[0].decision = (uint8_t)NK_SECURE_DECISION_ALLOW;
+
+    CHECK("install custom policy",
+          nk_securekernel_policy_set(&policy) == 0);
+    CHECK("custom allow applies",
+          nk_securekernel_check(NK_SECURE_SUBJECT_SHELL, "@/allow/app.elf",
+                                (uint32_t)NK_SECURE_OP_EXEC, &report) == 0 &&
+              report.decision == (uint32_t)NK_SECURE_DECISION_ALLOW);
+    CHECK("custom default denies other paths",
+          nk_securekernel_check(NK_SECURE_SUBJECT_SHELL,
+                                "@/data/user/app.elf",
+                                (uint32_t)NK_SECURE_OP_EXEC, &report) == 0 &&
+              report.decision == (uint32_t)NK_SECURE_DECISION_DENY);
+
+    policy.rules[0].operations = 1u << 12u;
+    CHECK("malformed policy rejected",
+          nk_securekernel_policy_set(&policy) == 1);
+
+    CHECK("builtin policy restored",
+          nk_securekernel_policy_builtin(&policy) == 0 &&
+              nk_securekernel_policy_set(&policy) == 0);
+}
+
+static void test_enforce(void)
+{
+    uint8_t clean[512];
+    uint8_t suspicious[512];
+    nk_secure_report_t report;
+    uint32_t size = make_elf(clean, false);
+
+    CHECK("enforce clean user exec",
+          nk_securekernel_enforce(NK_SECURE_SUBJECT_SHELL,
+                                  "@/data/user/app.elf", clean, size,
+                                  &report) == 0 &&
+              report.decision == (uint32_t)NK_SECURE_DECISION_ALLOW);
+
+    std::memcpy(suspicious, clean, size);
+    size = make_elf(suspicious, true);
+    CHECK("enforce suspicious user exec",
+          nk_securekernel_enforce(NK_SECURE_SUBJECT_SHELL,
+                                  "@/data/user/app.elf", suspicious, size,
+                                  &report) == 0 &&
+              report.decision == (uint32_t)NK_SECURE_DECISION_DENY &&
+              (report.flags & (uint32_t)NK_SECURE_FLAG_SUSPICIOUS) != 0u);
+
+    size = make_elf(clean, false);
+    CHECK("enforce policy-denied system exec",
+          nk_securekernel_enforce(NK_SECURE_SUBJECT_SHELL,
+                                  "@/data/system/null_kernel.elf", clean,
+                                  size, &report) == 0 &&
+              report.decision == (uint32_t)NK_SECURE_DECISION_DENY &&
+              (report.flags & (uint32_t)NK_SECURE_FLAG_POLICY_DENY) != 0u);
+}
+
+static void test_audit(void)
+{
+    nk_secure_audit_t entries[NK_SECURE_MAX_AUDIT + 2u];
+    nk_secure_audit_t last;
+    nk_secure_report_t report;
+    char line[NK_SECUREKERNEL_MAX_DETAIL + 64u];
+    uint32_t before = nk_securekernel_audit_count();
+    uint32_t drained;
+    int found_deny = 0;
+
+    (void)nk_securekernel_check(NK_SECURE_SUBJECT_SHELL,
+                                "@/data/system/null_kernel.elf",
+                                (uint32_t)NK_SECURE_OP_EXEC, &report);
+    CHECK("audit count grows",
+          nk_securekernel_audit_count() > before);
+    CHECK("audit last entry",
+          nk_securekernel_audit_last(&last) == 0 &&
+              std::strcmp(last.subject, NK_SECURE_SUBJECT_SHELL) == 0 &&
+              std::strcmp(last.object, NK_SECURE_OBJECT_SYSTEM) == 0);
+
+    drained = nk_securekernel_audit_drain(entries, NK_SECURE_MAX_AUDIT + 2u);
+    CHECK("audit drain bounded",
+          drained > 0u && drained <= (uint32_t)NK_SECURE_MAX_AUDIT);
+    for (uint32_t i = 0u; i < drained; i++) {
+        if (entries[i].decision == (uint32_t)NK_SECURE_DECISION_DENY) {
+            found_deny = 1;
+            CHECK("audit line formatted",
+                  nk_securekernel_audit_format(&entries[i], line,
+                                               (uint32_t)sizeof(line)) > 0u &&
+                      std::strstr(line, "DENY") != nullptr &&
+                      std::strstr(line, entries[i].subject) != nullptr);
+        }
+    }
+    CHECK("audit recorded denial", found_deny != 0);
+    CHECK("audit drained empty", nk_securekernel_audit_count() == 0u);
+    CHECK("audit last on empty", nk_securekernel_audit_last(&last) != 0);
+}
+
+static void test_policy_lock(void)
+{
+    nk_secure_policy_t policy;
+
+    CHECK("lock policy", nk_securekernel_policy_lock() == 0);
+    CHECK("policy is locked", nk_securekernel_policy_is_locked() != 0);
+    CHECK("locked policy rejects changes",
+          nk_securekernel_policy_builtin(&policy) == 0 &&
+              nk_securekernel_policy_set(&policy) == 2);
+}
+
 int main(void)
 {
     test_sha256();
     test_unsigned_and_scan();
     test_signing();
     test_bad_input();
+    test_policy_builtin();
+    test_policy_custom();
+    test_enforce();
+    test_audit();
+    test_policy_lock();
 
     std::printf("securekernel host tests: %d/%d passed\n", g_passed, g_checks);
     return (g_passed == g_checks) ? 0 : 1;

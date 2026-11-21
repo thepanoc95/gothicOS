@@ -17,6 +17,7 @@
 #define NK64_USER_HEAP 0x0000000050000000ULL
 #define NK64_SANDBOX_BASE 0x0000000060000000ULL
 #define NK64_SANDBOX_SIZE 0x00100000ULL  /* 1 MiB window inside 16 MiB RAM */
+#define NK64_FB_VBASE 0x0000000040000000ULL /* UI server's claimed FB window */
 #define NK64_USER_STACK_TOP 0x000000007fff0000ULL
 #define NK64_TEST_RAM 0x01000000ULL      /* 16 MiB QEMU test memory */
 #define NK64_STACK_PAGES 4u
@@ -46,6 +47,7 @@ typedef struct {
     uint32_t module_count;
     uint8_t cmdline_present;
     uint8_t rsdp_present;
+    nk64_fbinfo_t fb;
 } nk64_bootinfo_t;
 
 extern nk64_bootinfo_t nk64_boot;
@@ -55,6 +57,7 @@ extern volatile uint32_t nk64_runlevel;
 /* boot.c / main.c */
 void nk64_entry(void) __attribute__((noreturn));
 void nk64_main(void);
+void nk64_boot_fb_init(void);
 void nk64_panic(const char *msg) __attribute__((noreturn));
 
 /* arch helpers implemented by the AMD64 architecture layer */
@@ -69,10 +72,17 @@ uint8_t nk64_inb(uint16_t port);
 void nk64_hlt(void);
 void nk64_reboot(void);
 
+/* PS/2 keyboard + mouse input, exposed to userspace through INPUT_READ. */
+void nk64_input_init(void);
+void nk64_keyboard_handler(void);
+void nk64_mouse_handler(void);
+uint32_t nk64_input_read(nk64_input_event_t *out, uint32_t max);
+
 /* Paging + physical frames. */
 void nk64_pmm_init(const struct limine_memmap_response *mmap, uint64_t hhdm);
 uint64_t nk64_pmm_alloc_frame(void);
 void nk64_pmm_free_frame(uint64_t phys);
+void nk64_pmm_reserve(uint64_t phys, uint64_t len);
 uint64_t nk64_phys_to_virt(uint64_t phys);
 uint64_t nk64_virt_to_phys(uint64_t virt);
 void nk64_vmm_init(void);
@@ -91,6 +101,7 @@ uint64_t nk64_vmm_alloc_user_pages(uint64_t cr3, uint64_t vaddr, uint64_t len);
 /* Interrupts and timer. */
 void nk64_idt_init(void);
 void nk64_pic_init(void);
+void nk64_pic_unmask(uint8_t irq);
 void nk64_timer_init(uint32_t hz);
 void nk64_irq_enable(void);
 void nk64_irq_disable(void);

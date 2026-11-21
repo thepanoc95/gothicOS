@@ -189,6 +189,7 @@ void nk64_entry(void)
 
     /* Both helpers are idempotent: the portable kernel may call them again. */
     nk64_pmm_init(limine_memmap_request.response, nk64_boot.hhdm);
+    nk64_boot_fb_init();
     nk64_vmm_init();
 
     nk64_main();

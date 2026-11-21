@@ -527,6 +527,8 @@ int nk64_task_current(void)
     return g_current;
 }
 
+
+
 uint64_t nk64_task_current_cr3(void)
 {
     if (g_current < 0) {

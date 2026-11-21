@@ -46,6 +46,7 @@ extern struct limine_rsdp_request limine_rsdp_request;
 extern struct limine_kernel_address_request limine_kernel_address_request;
 /* arch/amd64/boot.c names this request `limine_cmdline_request`. */
 extern struct limine_executable_cmdline_request limine_cmdline_request;
+extern struct limine_framebuffer_request limine_framebuffer_request;
 
 /* Fallback shell lives in fallback_shell.c and never returns. */
 void nk64_fallback_shell(void) __attribute__((noreturn));
@@ -202,6 +203,57 @@ static void nk64_core_early_init(void)
     nk64_arch_init();
 }
 
+/*
+ * Publish the first Limine framebuffer. boot.c and the weak entry point both
+ * call this after the PMM is ready, so the linear buffer can be reserved
+ * before any task pages are allocated. Only metadata crosses into ABI v3;
+ * mapping it is an explicit FB_MAP request from the UI server.
+ */
+void nk64_boot_fb_init(void)
+{
+    const struct limine_framebuffer_response *fb_response;
+    const struct limine_framebuffer *fb;
+    uint64_t raw;
+    uint64_t phys;
+    uint64_t bytes;
+
+    fb_response = limine_framebuffer_request.response;
+    if (fb_response == (const struct limine_framebuffer_response *)0 ||
+        fb_response->framebuffer_count == 0u ||
+        fb_response->framebuffers == (struct limine_framebuffer **)0) {
+        return;
+    }
+    fb = fb_response->framebuffers[0];
+    if (fb == (const struct limine_framebuffer *)0 || fb->address == NULL ||
+        fb->width == 0u || fb->height == 0u || fb->pitch == 0u ||
+        (fb->bpp != 24u && fb->bpp != 32u) ||
+        fb->width > 8192u || fb->height > 8192u ||
+        fb->pitch > (8192u * 4u)) {
+        return;
+    }
+
+    raw = (uint64_t)(uintptr_t)fb->address;
+    phys = raw;
+    if (nk64_boot.hhdm != 0u && raw >= nk64_boot.hhdm) {
+        phys = raw - nk64_boot.hhdm;
+    }
+    bytes = fb->pitch * fb->height;
+
+    nk64_boot.fb.phys = phys;
+    nk64_boot.fb.width = (uint32_t)fb->width;
+    nk64_boot.fb.height = (uint32_t)fb->height;
+    nk64_boot.fb.pitch = (uint32_t)fb->pitch;
+    nk64_boot.fb.bpp = fb->bpp;
+    nk64_boot.fb.red_size = fb->red_mask_size;
+    nk64_boot.fb.red_shift = fb->red_mask_shift;
+    nk64_boot.fb.green_size = fb->green_mask_size;
+    nk64_boot.fb.green_shift = fb->green_mask_shift;
+    nk64_boot.fb.blue_size = fb->blue_mask_size;
+    nk64_boot.fb.blue_shift = fb->blue_mask_shift;
+    nk64_boot.fb.present = 1u;
+    nk64_pmm_reserve(phys, bytes);
+}
+
 /* ------------------------------------------------------------------ */
 /* Public entry points.                                                */
 /* ------------------------------------------------------------------ */
@@ -275,6 +327,7 @@ __attribute__((weak)) void nk64_entry(void)
 
     nk64_pmm_init(mmap, hhdm);
     nk64_runlevel = NK64_RUNLEVEL_MEM;
+    nk64_boot_fb_init();
     nk64_vmm_init();
 
     nk64_core_early_init();

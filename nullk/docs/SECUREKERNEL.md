@@ -1,13 +1,77 @@
 # SecureKernel
 
-SecureKernel is a C++ **userspace** integrity layer for `null_kernel`. It is not
-part of the ring-0 core. The tiny kernel still owns only CPU, memory,
-interrupts, scheduling and the ABI; SecureKernel is linked into the userspace
-image and consulted by exec callers before the kernel creates a task.
+SecureKernel is a C++ **userspace** security layer for `null_kernel`. It is not
+part of the ring-0 core: the tiny kernel still owns only CPU, memory,
+interrupts, scheduling and the ABI. SecureKernel is linked into the userspace
+image and performs two jobs before a program is allowed to run:
+
+1. **Type enforcement** — an SELinux-style policy decides whether a labelled
+   subject may perform an operation on a labelled object (a file path).
+2. **Integrity** — the ELF is scanned for suspicious symbols/strings and an
+   optional `NKSIGv1` signature is verified.
 
 Source tree: `nullk/securekernel/`.
 
-## Policy
+## Architecture
+
+All ring 3 services live in the same `init.elf` image, so the policy and audit
+ring are shared state in that address space:
+
+- `init64` creates the InterfaceKit server and demo, then the `SecureKernel` task.
+- The service installs the built-in policy, **locks it**, and logs policy
+  decisions drained from the audit ring.
+- The `nksh` shell calls `nk_securekernel_enforce()` on every `exec`, passing
+  subject `shell_t` and the target path.
+- On an ALLOW the shell calls `nk64_exec_mem()` with the exact bytes it
+  verified. The kernel creates the task from that buffer, so there is no
+  check/use window between verification and loading.
+
+Because policy is locked after boot, later tasks cannot weaken it. The kernel
+has no policy code; it only provides the bounded `EXEC_MEM` syscall.
+
+## Type-enforcement policy
+
+**Subjects** are labels presented by the caller (for example `shell_t`,
+`init_t`, `service_t`, `untrusted_t`). **Objects** are file contexts derived
+from the longest matching path prefix:
+
+| Path prefix | Object context |
+| --- | --- |
+| `@/data/system/` | `system_t` |
+| `@/data/user/` | `user_t` |
+| `@/usb/` | `usb_t` |
+| `@/data/` | `config_t` |
+| anything else | `unknown_t` |
+
+**Operations** are `EXEC`, `READ`, `WRITE` and `LOAD` (USB/UART payloads). A
+rule grants or denies a set of operations for a subject/object pair. An
+explicit DENY wins; if no rule applies the decision is **DENY** (fail-closed).
+
+The built-in policy grants:
+
+| Subject | Object | Allowed operations |
+| --- | --- | --- |
+| `init_t` | `system_t`, `config_t` | READ |
+| `shell_t` | `system_t`, `config_t` | READ |
+| `shell_t` | `user_t` | READ, EXEC |
+| `shell_t` | `usb_t` | READ, LOAD |
+| `service_t` | `system_t` | READ |
+| `service_t` | `usb_t` | READ, LOAD |
+| `untrusted_t` | `system_t` | READ |
+| `untrusted_t` | `user_t` | READ, EXEC |
+| `untrusted_t` | `usb_t` | READ, LOAD |
+
+Notably the shell can read the kernel image but can never execute it. An
+unknown subject or an unlabelled object is denied by default.
+
+Applications can install a different policy with `nk_securekernel_policy_set()`
+before tasks start, or inspect the default with
+`nk_securekernel_policy_builtin()`. Policies are validated (label, operation
+and decision bounds) and rejected if malformed.
+
+## Integrity policy
+
+Type enforcement is combined with the existing image checks:
 
 | Image state | Result |
 | --- | --- |
@@ -21,7 +85,7 @@ Build with `-DNK_SECUREKERNEL_REQUIRE_SIGNED=1` to make every unsigned image a
 `DENY`. The default is permissive for unsigned but clean images so the existing
 initrd keeps working.
 
-## What is scanned
+### What is scanned
 
 SecureKernel parses ELF64 section headers directly (no libelf, no libc):
 
@@ -57,7 +121,7 @@ The default key is the development string in
 and keep the signer in sync. The signer accepts `NK_SECUREKERNEL_KEY` as either
 64 hex characters or an ASCII string.
 
-## Signer
+### Signer
 
 ```sh
 python3 nullk/securekernel/tools/sign_elf.py sign input.elf signed.elf
@@ -68,21 +132,47 @@ The signer moves the ELF section header table to the end, appends one section
 header, then appends the 88-byte signature payload. Tampering with any byte
 outside the signature section breaks both SHA-256 and HMAC-SHA256.
 
+## Audit
+
+Every policy decision (including decisions made by `enforce`) is recorded in a
+16-entry bounded ring with a sequence number, subject, object, operation,
+decision and reason. The service drains it every 50 ticks and writes each
+entry to the kernel log:
+
+```
+[securekernel] DENY shell_t/system_t op=exec: blocked by policy: shell_t/system_t op=exec
+```
+
+Host callers can use `nk_securekernel_audit_count()`,
+`nk_securekernel_audit_last()`, `nk_securekernel_audit_drain()` and
+`nk_securekernel_audit_format()`.
+
 ## C ABI
 
 ```c
 #include "nullk/securekernel.h"
 
 nk_secure_report_t report;
-if (nk_securekernel_verify(image, size, &report) == 0 &&
+if (nk_securekernel_enforce(NK_SECURE_SUBJECT_SHELL, path,
+                            image, image_size, &report) == 0 &&
     report.decision == NK_SECURE_DECISION_ALLOW) {
-    /* safe to exec */
+    nk64_exec_mem(image, image_size);   /* exec exactly what was checked */
 }
 ```
 
-`nk_securekernel_sign()` is also exposed for host tools and tests. The
-userspace shell (`apps/sh64/main.c`) stages the whole file into a bounded
-buffer, verifies it, and only then calls `nk64_exec()`.
+`nk_securekernel_verify()` remains available for integrity-only checks, and
+`nk_securekernel_sign()` is exposed for host tools and tests.
+
+## Enforcement boundaries
+
+- The userspace `nksh` shell is fully gated: type policy, integrity scan and
+  verified-buffer exec.
+- The ring-0 fallback shell and the UART/`NKUSBPRG` loaders are recovery paths
+  and are deliberately outside the userspace policy; they cannot be reached
+  from a normal booted session.
+- Subjects are supplied by the caller. Tasks share one address space in this
+  profile, so SecureKernel is a cooperative mandatory layer for ring 3, not a
+  hardware-enforced hypervisor boundary.
 
 ## Build and tests
 
@@ -90,12 +180,7 @@ buffer, verifies it, and only then calls `nk64_exec()`.
 make -C nullk BOARD=amd64 test
 ```
 
-This runs the existing AMD64 host suite plus `test_securekernel`, which covers
-SHA-256, symbol scanning, signing, tamper detection, and malformed input.
-
-## Relationship to the kernel unification
-
-SecureKernel is deliberately portable C++ with no platform headers in its
-engine. When the AMD64 and ARM ports are collapsed onto one shared portable
-kernel core, this layer remains a userspace service and needs only its small C
-ABI re-linked against the unified userspace runtime.
+This runs the AMD64 host suite plus `test_securekernel`, which covers SHA-256,
+symbol scanning, signing, tamper detection, malformed input, built-in and
+custom policies, path labelling, policy locking, combined enforcement and the
+audit ring.

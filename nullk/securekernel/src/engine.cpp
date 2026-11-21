@@ -92,6 +92,7 @@ uint32_t align8(uint32_t v)
 int valid_elf(const uint8_t *image, uint32_t size, uint32_t *shoff,
               uint16_t *shentsize, uint16_t *shnum)
 {
+    uint64_t raw_shoff;
     uint64_t table_end;
 
     if (image == 0 || size < 64u) {
@@ -105,42 +106,54 @@ int valid_elf(const uint8_t *image, uint32_t size, uint32_t *shoff,
         return 0;
     }
 
-    *shoff = (uint32_t)rd64(image + 40);
+    raw_shoff = rd64(image + 40);
     *shentsize = rd16(image + 58);
     *shnum = rd16(image + 60);
-    if (*shnum == 0u || *shentsize < 64u || *shoff == 0u) {
+    if (*shnum == 0u || *shentsize < 64u || raw_shoff == 0u ||
+        raw_shoff > (uint64_t)size) {
         return 0;
     }
-    table_end = (uint64_t)*shoff + (uint64_t)*shnum * 64u;
-    if (table_end > (uint64_t)size) {
+    table_end = raw_shoff + (uint64_t)*shnum * (uint64_t)*shentsize;
+    if (table_end < raw_shoff || table_end > (uint64_t)size) {
         return 0;
     }
+    *shoff = (uint32_t)raw_shoff;
     return 1;
 }
 
 struct Section {
+    uint32_t name;
     uint32_t type;
     uint64_t flags;
     uint64_t offset;
     uint64_t size;
     uint32_t link;
+    uint64_t entsize;
 };
 
 int read_section(const uint8_t *image, uint32_t size, uint32_t shoff,
                  uint16_t shentsize, uint16_t index, Section *out)
 {
     const uint8_t *p;
+    uint64_t start;
     uint64_t end;
 
-    if ((uint64_t)(index + 1u) * 64u > (uint64_t)size - shoff) {
+    if ((uint64_t)shoff > (uint64_t)size) {
         return 0;
     }
-    p = image + shoff + (uint32_t)index * shentsize;
+    start = (uint64_t)shoff + (uint64_t)index * (uint64_t)shentsize;
+    if (start > (uint64_t)size ||
+        (uint64_t)shentsize > (uint64_t)size - start) {
+        return 0;
+    }
+    p = image + (uint32_t)start;
+    out->name = rd32(p);
     out->type = rd32(p + 4);
     out->flags = rd64(p + 8);
     out->offset = rd64(p + 24);
     out->size = rd64(p + 32);
     out->link = rd32(p + 40);
+    out->entsize = rd64(p + 56);
     end = out->offset + out->size;
     if (end < out->offset || end > (uint64_t)size) {
         return 0;
@@ -167,7 +180,8 @@ int find_signature(const uint8_t *image, uint32_t size, uint32_t shoff,
         if (!read_section(image, size, shoff, shentsize, (uint16_t)i, &sec)) {
             continue;
         }
-        if (sec.size < kSignatureSize || sec.offset > (uint64_t)size) {
+        if (sec.size < kSignatureSize || sec.offset > (uint64_t)size ||
+            sec.name != 0u || sec.type != kShtProgbits) {
             continue;
         }
         if (mem_equal(image + (uint32_t)sec.offset, magic, 8u)) {
@@ -264,6 +278,11 @@ void record_hit(nk_secure_report_t *report, uint32_t *hits,
 
 } /* namespace */
 
+void report_detail(nk_secure_report_t *report, const char *text)
+{
+    detail_copy(report == 0 ? 0 : report->detail, text);
+}
+
 int verify_image(const uint8_t *image, uint32_t size, nk_secure_report_t *report)
 {
     uint32_t shoff;
@@ -303,7 +322,11 @@ int verify_image(const uint8_t *image, uint32_t size, nk_secure_report_t *report
                              (uint16_t)sec.link, &strings) &&
                 strings.type == kShtStrtab) {
                 uint32_t stride = 0u;
+                uint32_t entry_size = 24u;
 
+                if (sec.entsize >= 24u && sec.entsize <= 1024u) {
+                    entry_size = (uint32_t)sec.entsize;
+                }
                 while (stride + 24u <= sec.size) {
                     uint32_t name_off = rd32(image + (uint32_t)sec.offset + stride);
                     uint8_t info = image[(uint32_t)sec.offset + stride + 4u];
@@ -322,7 +345,7 @@ int verify_image(const uint8_t *image, uint32_t size, nk_secure_report_t *report
                         token = scan_bytes(name, name_len);
                         record_hit(report, &hits, token);
                     }
-                    stride += 24u;
+                    stride += entry_size;
                 }
             }
         }

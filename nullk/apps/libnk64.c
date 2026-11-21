@@ -109,6 +109,13 @@ uint32_t nk64_exec(const char *path)
     return nk64_exec_arg(path, 0);
 }
 
+uint32_t nk64_exec_mem(const void *image, uint32_t size)
+{
+    return (uint32_t)nk64_syscall(NK64_SC_EXEC_MEM,
+                                  (uint64_t)(uintptr_t)image, (uint64_t)size,
+                                  0, 0, 0, 0);
+}
+
 void *nk64_mmap(uint64_t hint, uint64_t len, uint32_t flags)
 {
     uint64_t addr = nk64_syscall(NK64_SC_MMAP, hint, len, flags, 0, 0, 0);
@@ -119,6 +126,23 @@ uint32_t nk64_log(uint32_t level, const char *text, uint32_t len)
 {
     return (uint32_t)nk64_syscall(NK64_SC_LOG, level, (uint64_t)(uintptr_t)text,
                                   len, 0, 0, 0);
+}
+
+uint32_t nk64_fb_info(nk64_fbinfo_t *out)
+{
+    return (uint32_t)nk64_syscall(NK64_SC_FB_INFO,
+                                  (uint64_t)(uintptr_t)out, 0, 0, 0, 0, 0);
+}
+
+uint64_t nk64_fb_map(void)
+{
+    return nk64_syscall(NK64_SC_FB_MAP, 0, 0, 0, 0, 0, 0);
+}
+
+uint32_t nk64_input_read(nk64_input_event_t *out, uint32_t max)
+{
+    return (uint32_t)nk64_syscall(NK64_SC_INPUT_READ,
+                                  (uint64_t)(uintptr_t)out, max, 0, 0, 0, 0);
 }
 
 uint32_t nk64_usb_read(uint32_t lun, uint64_t lba, uint32_t count, void *buf)
@@ -222,6 +246,43 @@ int nk_memcmp(const void *a, const void *b, size_t n)
         }
     }
     return 0;
+}
+
+/*
+ * clang can lower struct copies in the C++ security layer to libc calls even
+ * with -fno-builtin. These tiny shims keep init.elf fully freestanding; the
+ * kernel image never needs them.
+ */
+void *memcpy(void *dst, const void *src, size_t n)
+{
+    return nk_memcpy(dst, src, n);
+}
+
+void *memset(void *dst, int value, size_t n)
+{
+    return nk_memset(dst, value, n);
+}
+
+int memcmp(const void *a, const void *b, size_t n)
+{
+    return nk_memcmp(a, b, n);
+}
+
+void *memmove(void *dst, const void *src, size_t n)
+{
+    uint8_t *d = (uint8_t *)dst;
+    const uint8_t *s = (const uint8_t *)src;
+
+    if (d == s || n == 0u) {
+        return dst;
+    }
+    if (d > s && d < s + n) {
+        for (size_t i = n; i != 0u; i--) {
+            d[i - 1u] = s[i - 1u];
+        }
+        return dst;
+    }
+    return nk_memcpy(dst, src, n);
 }
 
 static char *nk_utoa_base(uint64_t value, char *buf, uint32_t cap,

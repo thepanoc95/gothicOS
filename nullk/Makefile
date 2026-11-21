@@ -50,7 +50,8 @@ endif
 
 ARCH_CFLAGS := $(ARCH_FLAGS) -mthumb -ffreestanding -fno-builtin \
                -fno-stack-protector -nostdlib -Wall -Wextra -Werror -O2
-CFLAGS := -std=c11 $(ARCH_CFLAGS) $(EXTRA_CFLAGS) -MMD -MP -Iinclude -Ink
+CFLAGS := -std=c11 $(ARCH_CFLAGS) $(EXTRA_CFLAGS) -MMD -MP -Iinclude -Ink \
+          -DINTERFACEKIT_EMBEDDED
 ASFLAGS := $(ARCH_CFLAGS)
 LDFLAGS := -std=c11 $(ARCH_CFLAGS) -T $(ARCH_DIR)/linker.ld \
            -Wl,-Map=$(ELF:.elf=.map)
@@ -59,11 +60,13 @@ HOST_CFLAGS := -std=c11 -Wall -Wextra -Werror -O2 -MMD -MP -Iinclude -Ink \
                -DNK_ARCH_HOST
 
 ARCH_C_SRC := $(ARCH_DIR)/arch.c
+INTERFACEKIT_SRC := shared/interfacekit_gfx.c shared/interfacekit_widgets.c
 KERNEL_C_SRC := nk/_oskernel.c nk/_os_runmode.c nk/_os_task.c \
                 nk/_os_sched.c nk/_os_capabilities.c nk/_os_memory.c \
                 nk/_os_ipc.c nk/_os_irq.c nk/_os_syscalls.c \
                 nk/hdf/HardwareDriverEntry.c nk/_os_compiler_rt.c \
-                lib/libnk/libnk.c apps/init/app.c $(ARCH_C_SRC) $(EXTRA_C_SRC)
+                lib/libnk/libnk.c apps/init/app.c $(ARCH_C_SRC) $(EXTRA_C_SRC) \
+                $(INTERFACEKIT_SRC)
 KERNEL_ASM_SRC := $(ARCH_DIR)/boot.s $(ARCH_DIR)/context.s
 CROSS_OBJ_FILES := $(patsubst %.c,$(CROSS_OBJ)/%.o,$(KERNEL_C_SRC)) \
                    $(patsubst %.s,$(CROSS_OBJ)/%.o,$(KERNEL_ASM_SRC))

@@ -139,20 +139,28 @@ static nk_status_t sh_exec(const char *path)
     if (status != NK_STATUS_OK) {
         return status;
     }
-    rc = nk_securekernel_verify(g_exec_image, len, &report);
+    rc = nk_securekernel_enforce(NK_SECURE_SUBJECT_SHELL, path,
+                                 g_exec_image, len, &report);
     if (rc != 0) {
         nk_printf("[nksh] SecureKernel rejected verification request (%u)\n",
                   (uint32_t)rc);
         return NK_STATUS_INTERNAL_ERROR;
     }
     if (report.decision != (uint32_t)NK_SECURE_DECISION_ALLOW) {
-        nk_printf("[nksh] SecureKernel blocked %s: %s\n", path, report.detail);
+        if ((report.flags & (uint32_t)NK_SECURE_FLAG_POLICY_DENY) != 0u) {
+            nk_printf("[nksh] SecureKernel policy denied %s: %s\n",
+                      path, report.detail);
+        } else {
+            nk_printf("[nksh] SecureKernel blocked %s: %s\n",
+                      path, report.detail);
+        }
         return NK_STATUS_PERMISSION_DENIED;
     }
     if ((report.flags & (uint32_t)NK_SECURE_FLAG_UNSIGNED) != 0u) {
         nk_printf("[nksh] SecureKernel warning: %s\n", report.detail);
     }
-    return (nk_status_t)nk64_exec(path);
+    /* Exec the bytes we just verified, not the path again: no check/use gap. */
+    return (nk_status_t)nk64_exec_mem(g_exec_image, len);
 }
 
 static nk_status_t sh_usb_read(uint32_t lun, uint64_t lba, uint32_t count,

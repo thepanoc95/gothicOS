@@ -37,21 +37,25 @@ KERNEL_BIN := $(OUT)/null_kernel_amd64.bin
 USER_ELF := $(OUT)/init.elf
 INITRD := $(OUT)/initrd.tar
 
-KERNEL_SRC := kernel64/main.c kernel64/task.c kernel64/syscall.c \
-              kernel64/elfload.c kernel64/uartload.c kernel64/fallback_shell.c \
+KERNEL_SRC := nk/kernel64/main.c nk/kernel64/task.c nk/kernel64/syscall.c \
+              nk/kernel64/elfload.c nk/kernel64/uartload.c nk/kernel64/fallback_shell.c \
               shared/printk.c shared/vfs.c shared/elf64.c shared/acpi.c \
               shared/sandbox.c shared/shell64.c shared/usb_as_sata.c \
+              shared/input_decode.c \
               arch/amd64/boot.c arch/amd64/arch.c arch/amd64/paging.c \
-              arch/amd64/idt.c arch/amd64/uart.c
+              arch/amd64/idt.c arch/amd64/uart.c arch/amd64/input.c
 KERNEL_ASM := arch/amd64/context.S
 KERNEL_OBJ := $(patsubst %.c,$(OUT)/obj/%.o,$(KERNEL_SRC)) \
               $(patsubst %.S,$(OUT)/obj/%.o,$(KERNEL_ASM))
 
-USER_SRC := apps/init64/main.c apps/sh64/main.c apps/usb64/main.c \
-            apps/libnk64.c shared/shell64.c shared/sandbox.c \
-            shared/usb_as_sata.c shared/printk.c
+USER_SRC := apps/init64/main.c apps/interfacekit/main.c apps/interfacekit_demo/main.c \
+            apps/sh64/main.c apps/usb64/main.c apps/libnk64.c \
+            shared/shell64.c shared/sandbox.c shared/usb_as_sata.c \
+            shared/printk.c shared/interfacekit_gfx.c \
+            shared/interfacekit_widgets.c
 USER_CXX_SRC := securekernel/OSSecureAPI.cpp securekernel/src/api.cpp \
-                securekernel/src/sha256.cpp securekernel/src/engine.cpp
+                securekernel/src/sha256.cpp securekernel/src/engine.cpp \
+                securekernel/src/policy.cpp
 USER_OBJ := $(patsubst %.c,$(OUT)/obj/user/%.o,$(USER_SRC)) \
             $(patsubst %.cpp,$(OUT)/obj/user/%.o,$(USER_CXX_SRC))
 
@@ -62,12 +66,23 @@ HOST_OBJ := $(patsubst %.c,$(HOST_OUT)/%.o,$(HOST_SRC))
 HOST_BIN := $(HOST_OUT)/test_amd64
 
 SECURE_TEST_SRC := securekernel/src/api.cpp securekernel/src/sha256.cpp \
-                   securekernel/src/engine.cpp \
+                   securekernel/src/engine.cpp securekernel/src/policy.cpp \
                    securekernel/tests/test_securekernel.cpp
 SECURE_TEST_OBJ := $(patsubst %.cpp,$(HOST_OUT)/%.o,$(SECURE_TEST_SRC))
 SECURE_TEST_BIN := $(HOST_OUT)/test_securekernel
 
-.PHONY: all test qemu clean limine
+INTERFACEKIT_TEST_SRC := shared/input_decode.c shared/interfacekit_gfx.c \
+                         shared/interfacekit_widgets.c tests/test_interfacekit.c
+INTERFACEKIT_TEST_OBJ := $(patsubst %.c,$(HOST_OUT)/%.o,$(INTERFACEKIT_TEST_SRC))
+INTERFACEKIT_TEST_BIN := $(HOST_OUT)/test_interfacekit
+
+INTERFACEKIT_EMB_TEST_SRC := shared/interfacekit_gfx.c \
+                             shared/interfacekit_widgets.c \
+                             tests/test_interfacekit_embedded.c
+INTERFACEKIT_EMB_TEST_OBJ := $(patsubst %.c,$(HOST_OUT)/embedded/%.o,$(INTERFACEKIT_EMB_TEST_SRC))
+INTERFACEKIT_EMB_TEST_BIN := $(HOST_OUT)/test_interfacekit_embedded
+
+.PHONY: all test qemu qemu-ui clean limine
 
 all: $(KERNEL_ELF) $(KERNEL_BIN) $(USER_ELF) $(INITRD)
 
@@ -110,6 +125,10 @@ $(HOST_OUT)/%.o: %.c
 	@mkdir -p $(dir $@)
 	$(CC) $(HOST_CFLAGS) -c $< -o $@
 
+$(HOST_OUT)/embedded/%.o: %.c
+	@mkdir -p $(dir $@)
+	$(CC) $(HOST_CFLAGS) -DINTERFACEKIT_EMBEDDED -c $< -o $@
+
 $(HOST_OUT)/%.o: %.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) $(HOST_CXXFLAGS) -c $< -o $@
@@ -122,9 +141,19 @@ $(SECURE_TEST_BIN): $(SECURE_TEST_OBJ)
 	@mkdir -p $(dir $@)
 	$(CXX) $(HOST_CXXFLAGS) -o $@ $(SECURE_TEST_OBJ)
 
-test: $(HOST_BIN) $(SECURE_TEST_BIN)
+$(INTERFACEKIT_TEST_BIN): $(INTERFACEKIT_TEST_OBJ)
+	@mkdir -p $(dir $@)
+	$(CC) $(HOST_CFLAGS) -o $@ $(INTERFACEKIT_TEST_OBJ)
+
+$(INTERFACEKIT_EMB_TEST_BIN): $(INTERFACEKIT_EMB_TEST_OBJ)
+	@mkdir -p $(dir $@)
+	$(CC) $(HOST_CFLAGS) -o $@ $(INTERFACEKIT_EMB_TEST_OBJ)
+
+test: $(HOST_BIN) $(SECURE_TEST_BIN) $(INTERFACEKIT_TEST_BIN) $(INTERFACEKIT_EMB_TEST_BIN)
 	$(HOST_BIN)
 	$(SECURE_TEST_BIN)
+	$(INTERFACEKIT_TEST_BIN)
+	$(INTERFACEKIT_EMB_TEST_BIN)
 
 # Booting requires Limine's bootloader files. Set LIMINE_DIR to the directory
 # containing them. Both the classic names (limine.sys / limine-cd.bin /
@@ -184,9 +213,18 @@ qemu: $(ISO)
 		{ echo "qemu-system-x86_64 is not installed"; exit 1; }
 	qemu-system-x86_64 -m 16M -M q35 -cdrom $(ISO) -nographic -serial mon:stdio
 
+# Same image with the display attached so Limine can hand InterfaceKit a framebuffer.
+qemu-ui: $(ISO)
+	@command -v qemu-system-x86_64 >/dev/null 2>&1 || \
+		{ echo "qemu-system-x86_64 is not installed"; exit 1; }
+	qemu-system-x86_64 -m 32M -M q35 -cdrom $(ISO) -serial mon:stdio
+
 clean:
 	rm -rf $(OUT) $(HOST_OUT)
 
 -include $(KERNEL_OBJ:.o=.d)
 -include $(USER_OBJ:.o=.d)
 -include $(HOST_OBJ:.o=.d)
+-include $(SECURE_TEST_OBJ:.o=.d)
+-include $(INTERFACEKIT_TEST_OBJ:.o=.d)
+-include $(INTERFACEKIT_EMB_TEST_OBJ:.o=.d)

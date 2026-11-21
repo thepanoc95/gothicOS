@@ -33,6 +33,8 @@ add_executable(null_kernel_pico
     ${NULLK_ROOT}/nk/hdf/HardwareDriverEntry.c
     ${NULLK_ROOT}/lib/libnk/libnk.c
     ${NULLK_ROOT}/apps/init/app.c
+    ${NULLK_ROOT}/shared/interfacekit_gfx.c
+    ${NULLK_ROOT}/shared/interfacekit_widgets.c
 
     context_sdk.S
 )
@@ -41,6 +43,9 @@ target_include_directories(null_kernel_pico PRIVATE
     ${NULLK_ROOT}/nk
     ${NULLK_ROOT}/include
 )
+
+# Pico W uses the reduced InterfaceKit widget set: common glass controls only.
+target_compile_definitions(null_kernel_pico PRIVATE INTERFACEKIT_EMBEDDED=1)
 
 # _os_compiler_rt.c is intentionally excluded: the SDK links newlib, which
 # already provides memcpy/memmove/memset/memcmp.

@@ -46,8 +46,15 @@ void nk64_exit(uint32_t code) __attribute__((noreturn));
 
 uint32_t nk64_exec(const char *path);
 uint32_t nk64_exec_arg(const char *path, uint64_t arg);
+/* Exec the exact verified bytes; used by SecureKernel after policy checks. */
+uint32_t nk64_exec_mem(const void *image, uint32_t size);
 void *nk64_mmap(uint64_t hint, uint64_t len, uint32_t flags);
 uint32_t nk64_log(uint32_t level, const char *text, uint32_t len);
+
+/* Graphics/input primitives. FB_MAP succeeds for one task per boot. */
+uint32_t nk64_fb_info(nk64_fbinfo_t *out);
+uint64_t nk64_fb_map(void);
+uint32_t nk64_input_read(nk64_input_event_t *out, uint32_t max);
 
 uint32_t nk64_usb_read(uint32_t lun, uint64_t lba, uint32_t count, void *buf);
 uint32_t nk64_usb_write(uint32_t lun, uint64_t lba, uint32_t count,
@@ -78,6 +85,8 @@ void nk_printf(const char *fmt, ...);
 
 /* ---- Service entry points linked into the single init ELF -------------- */
 
+void interfacekit_server_entry(void);
+void interfacekit_demo_entry(void);
 void usb_service_entry(void);
 void shell_service_entry(void);
 

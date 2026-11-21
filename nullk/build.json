@@ -8,6 +8,10 @@
                 "run": [ "make", "-C", "%PROJROOT/nullk", "test" ]
             },
             {
+                "name": "test-nullk-amd64-interfacekit",
+                "run": [ "make", "-C", "%PROJROOT/nullk", "BOARD=amd64", "test" ]
+            },
+            {
                 "name": "build-nullk-arm",
                 "run": [ "make", "-C", "%PROJROOT/nullk", "CROSS=arm-none-eabi-", "all" ]
             },

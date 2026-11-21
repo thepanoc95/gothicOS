@@ -5,22 +5,26 @@
 The AMD64 port inverts the classic null_kernel layout. Ring 0 is a tiny
 higher-half executive; almost everything else is a freestanding ring 3 task.
 The kernel and userspace talk only through **NULLK ABI v3** (`syscall`:
-`rax` = number, args in `rdi/rsi/rdx/r10/r8/r9`).
+`rax` = number, args in `rdi/rsi/rdx/r10/r8/r9`). The ring 0 executive lives
+in `nk/kernel64/`, inside the same `nk/` kernel tree used by the other ports;
+this port only adds its arch hooks under `arch/amd64/`.
 
-| Runs in ring 0 (kernel64/, arch/amd64/) | Runs in ring 3 (apps/) |
+| Runs in ring 0 (nk/kernel64/, arch/amd64/) | Runs in ring 3 (apps/) |
 | --- | --- |
 | Boot (Limine), HHDM + page tables, IDT/PIC, PIT | `init64` (first task), `nksh` shell |
-| Scheduler, task switch, syscall dispatch | `usb64` USB-as-SATA service |
-| Physical frames, user mapping, ELF loading | `@/` filesystem walk, program loading |
-| UART driver, `printk`, emergency fallback shell | `libnk64` syscall wrappers + formatter |
+| Scheduler, task switch, syscall dispatch | InterfaceKit desktop server, InterfaceKit demo client |
+| Physical frames, user mapping, ELF loading | `usb64` USB-as-SATA service |
+| UART driver, `printk`, emergency fallback shell | `@/` filesystem walk, program loading |
+| Framebuffer metadata/mapping, PS/2 event ring | `libnk64` syscall wrappers + formatter |
 
 Userspace binaries are freestanding ELF64 `ET_EXEC` images linked at
 `0x400000` (2 MiB aligned), with `PT_LOAD` segments and `void _start(void)`.
 The kernel maps a NULL pointer at the top of the user stack and jumps to
 `_start`. There is no libc, no dynamic linker and no POSIX layer.
 
-All three services are linked into one small `init.elf` for the test profile;
-`_start` creates the `usb64` and `nksh` tasks and then sleeps forever.
+All services are linked into one small `init.elf` for the test profile;
+`_start` creates the InterfaceKit server and demo, SecureKernel, `usb64` and
+`nksh`, then sleeps forever.
 
 ## Build and test
 
@@ -28,12 +32,13 @@ All three services are linked into one small `init.elf` for the test profile;
 make -C nullk BOARD=amd64 test
 make -C nullk BOARD=amd64 all
 make -C nullk BOARD=amd64 qemu LIMINE_DIR=/path/to/limine
+make -C nullk BOARD=amd64 qemu-ui LIMINE_DIR=/path/to/limine
 ```
 
 Outputs (under `build/NullKernel/amd64/`):
 
 - `null_kernel_amd64.elf` / `.bin` - tiny ring 0 kernel
-- `init.elf` - combined userspace image (init + shell + USB service)
+- `init.elf` - combined userspace image (init, InterfaceKit, demo, shell, USB, security)
 - `initrd.tar` - USTAR tree, built by `tools/mkinitrd.py`
 
 To boot without the Make target:
@@ -44,10 +49,13 @@ qemu-system-x86_64 -m 16M -M q35 -cdrom build/NullKernel/amd64/null_kernel.iso \
 ```
 
 `-m 16M` is deliberate: the test profile has exactly 16 MiB of RAM and all
-kernel arrays are sized for that limit.
+kernel arrays are sized for that limit. The `qemu` target stays headless and
+serial-only; `qemu-ui` uses 32 MiB and keeps the display attached so Limine can
+provide the framebuffer claimed by InterfaceKit.
 
 Run the host-side tests of the portable logic with `make -C nullk BOARD=amd64
-test`; they do not require Limine or QEMU.
+test`; they do not require Limine or QEMU. That target runs AMD64, SecureKernel,
+InterfaceKit desktop and InterfaceKit embedded host tests.
 
 ## Limine deployment
 
@@ -119,11 +127,28 @@ bounds-checked by `nk_sandbox_*`. Entering `exit` calls `nk64_exit(0)`.
 
 ## SecureKernel
 
-Every `exec` in the userspace shell is checked by the C++ SecureKernel layer
-before `nk64_exec()` is issued. It scans ELF symbols/strings for suspicious
-names, verifies `NKSIGv1` signatures when present, and denies tampered or
-suspicious images. See `SECUREKERNEL.md` for the policy, signature format,
-signer, and C ABI. The service announces itself as ring-3 task 2 at boot.
+Every `exec` in the userspace shell is checked by the C++ SecureKernel layer.
+An SELinux-style policy decides whether `shell_t` may execute the path's object
+context, then the layer scans ELF symbols/strings for suspicious names and
+verifies `NKSIGv1` signatures when present. On approval the shell calls
+`nk64_exec_mem()` so the kernel loads the exact verified bytes. The service
+announces itself at boot, locks the policy and logs audit decisions. See
+`SECUREKERNEL.md` for the policy model, signature format, signer, and C ABI.
+
+## InterfaceKit desktop server
+
+InterfaceKit is a ring-3 desktop server. Ring 0 publishes Limine framebuffer
+metadata through `NK64_SC_FB_INFO`, maps the buffer once through `NK64_SC_FB_MAP`,
+and forwards PS/2 keyboard/mouse events through `NK64_SC_INPUT_READ`. InterfaceKit
+owns all drawing, windows, the cursor and input routing; the demo shows the
+client API from `include/nullk/interfacekit_server.h` and the common grained-glass
+widgets from `include/nullk/interfacekit_widgets.h`.
+
+Boot with `make -C nullk BOARD=amd64 qemu-ui LIMINE_DIR=/path/to/limine` to see
+it. If Limine reports no framebuffer, InterfaceKit logs `[InterfaceKit] no
+framebuffer reported; desktop disabled` and the serial services continue. See
+[InterfaceKit.md](InterfaceKit.md) for profiles, widgets, ABI, server model,
+controls and limitations.
 
 ## USB-as-SATA protocol
 

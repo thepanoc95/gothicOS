@@ -62,6 +62,7 @@ void nk64_arch_init(void)
     nk64_uart_init();
     nk64_idt_init();
     nk64_pic_init();
+    nk64_input_init();
     nk64_syscall_init();
     nk64_timer_init(100u);
     nk64_irq_enable();

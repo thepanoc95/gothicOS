@@ -202,6 +202,13 @@ uint64_t nk64_pmm_alloc_frame(void)
     return 0u;
 }
 
+void nk64_pmm_reserve(uint64_t phys, uint64_t len)
+{
+    if (nk64_pmm_ready) {
+        nk64_reserve_range(phys, len);
+    }
+}
+
 void nk64_pmm_free_frame(uint64_t phys)
 {
     uint64_t idx;

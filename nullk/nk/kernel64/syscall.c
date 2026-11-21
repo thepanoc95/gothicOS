@@ -53,6 +53,9 @@ typedef struct {
 static nk64_usb_backend_t g_usb_backend;
 static uint8_t g_usb_mirror[NK64_USB_MIRROR_MAX];
 
+/* The framebuffer has exactly one claiming userspace task (the UI server). */
+static uint8_t g_fb_claimed;
+
 /* The kernel fallback shell has no userspace backend; report unsupported. */
 __attribute__((weak)) int nk64_usb_backend_read(uint32_t lun, uint64_t lba,
                                                 uint32_t count, void *buf)
@@ -381,6 +384,68 @@ uint64_t nk64_dispatch_syscall(uint64_t n, uint64_t a0, uint64_t a1,
         }
         (void)a1;   /* argument string is not forwarded yet */
         return (uint64_t)NK_STATUS_OK;
+    }
+
+    case NK64_SC_EXEC_MEM: {
+        /* SecureKernel stages and verifies an image in userspace, then execs
+         * these exact bytes. No second VFS read means no check/use window. */
+        if (a1 == 0u || a1 > (uint64_t)sizeof(nk64_elf_buffer) ||
+            !nk64_copy_in(nk64_elf_buffer, a0, (uint32_t)a1)) {
+            return (uint64_t)NK_STATUS_INVALID_ARGUMENT;
+        }
+        if (nk64_task_create_elf(nk64_elf_buffer, (uint32_t)a1, "exec") < 0) {
+            return (uint64_t)NK_STATUS_INTERNAL_ERROR;
+        }
+        return (uint64_t)NK_STATUS_OK;
+    }
+
+    case NK64_SC_FB_INFO: {
+        if (nk64_boot.fb.present == 0u ||
+            !nk64_copy_out(a0, &nk64_boot.fb,
+                           (uint32_t)sizeof(nk64_fbinfo_t))) {
+            return (uint64_t)NK_STATUS_NOT_FOUND;
+        }
+        return (uint64_t)NK_STATUS_OK;
+    }
+
+    case NK64_SC_FB_MAP: {
+        uint64_t bytes;
+        uint64_t cr3;
+
+        if (nk64_boot.fb.present == 0u) {
+            return (uint64_t)NK_STATUS_NOT_FOUND;
+        }
+        if (g_fb_claimed != 0u) {
+            return (uint64_t)NK_STATUS_PERMISSION_DENIED;
+        }
+        bytes = (uint64_t)nk64_boot.fb.pitch * nk64_boot.fb.height;
+        cr3 = nk64_task_current_cr3();
+        if (bytes == 0u || bytes > (64u * 1024u * 1024u) || cr3 == 0u) {
+            return (uint64_t)NK_STATUS_INTERNAL_ERROR;
+        }
+        nk64_vmm_map(cr3, (uint64_t)NK64_FB_VBASE, nk64_boot.fb.phys, bytes,
+                     NK64_PAGE_USER_RW | NK64_PAGE_NX);
+        g_fb_claimed = 1u;
+        return (uint64_t)NK64_FB_VBASE;
+    }
+
+    case NK64_SC_INPUT_READ: {
+        nk64_input_event_t events[16];
+        uint32_t max = (a1 > 16u) ? 16u : (uint32_t)a1;
+        uint32_t count;
+
+        if (max == 0u) {
+            return 0u;
+        }
+        count = nk64_input_read(events, max);
+        if (count == 0u) {
+            return 0u;
+        }
+        if (!nk64_copy_out(a0, events,
+                           count * (uint32_t)sizeof(nk64_input_event_t))) {
+            return 0u;
+        }
+        return (uint64_t)count;
     }
 
     case NK64_SC_MMAP: {
