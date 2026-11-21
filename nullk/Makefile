@@ -3,6 +3,10 @@ BUILD := $(ROOT)/build/NullKernel
 HOST_OBJ := $(BUILD)/obj/host
 
 BOARD ?= lm3s6965evb
+
+# The AMD64 port has its own tiny kernel build. Delegate before any of the
+# ARM-specific variables below are evaluated.
+ifneq ($(BOARD),amd64)
 ifeq ($(BOARD),pico_w)
 BOARD_NAME := rp2040
 else
@@ -152,3 +156,7 @@ clean:
 
 -include $(CROSS_OBJ_FILES:.o=.d)
 -include $(HOST_OBJ_FILES:.o=.d)
+
+else # BOARD == amd64
+include Makefile.amd64
+endif

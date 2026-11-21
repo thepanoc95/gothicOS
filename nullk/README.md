@@ -4,6 +4,13 @@
 the only things that run in privileged mode are scheduling, preemption, IPC,
 capability bookkeeping, memory pools, IRQ dispatch and a console driver.
 Everything else lives in tasks and uses the **NULLK ABI v2** SVC interface.
+
+There is also a second, AMD64 PC port with its own **NULLK ABI v3** and a
+reverse-monolithic layout: ring 0 only handles CPU, memory, interrupts, IPC,
+scheduling, `printk` and a small emergency shell; the `@/` filesystem, the
+`nk) ` shell and the USB/SATA loader run as ring 3 tasks. See
+[docs/AMD64.md](docs/AMD64.md).
+
 NULLK is deliberately **not POSIX**; there are no file descriptors,
 `open/read/write`, `fork`, signals or pthreads. The default Cortex-M3 image is
 freestanding with no libc dependency. The optional Pico W port uses the Pico SDK
@@ -13,6 +20,10 @@ and TinyUSB for its USB serial console, so that image does link libc.
 
 ```
 nullk/
+  arch/amd64/           Limine-booted AMD64 target: boot, paging, IDT, UART, switch
+  kernel64/             tiny AMD64 kernel core (ABI v3 scheduler/syscalls)
+  shared/               portable printk, @/ VFS, ELF64, ACPI, nk) shell, USB-as-SATA
+  apps/                 AMD64 userspace: init, shell, USB service, libnk64
   arch/arm/cortexm/     Cortex-M3 QEMU target: boot, vectors, UART, linker
   arch/arm/dev/rp2040/  legacy freestanding RP2040 backend (boot2, M0+ switcher, USB)
   pico/                 Pico SDK + TinyUSB build of the RP2040/Pico W port
@@ -72,6 +83,19 @@ make -C nullk CROSS=arm-none-eabi- qemu
 ```
 
 The default board is `lm3s6965evb` (Cortex-M3, UART0 at `0x4000c000`).
+
+### AMD64 PC (Limine)
+
+```sh
+make -C nullk BOARD=amd64 test
+make -C nullk BOARD=amd64 all
+make -C nullk BOARD=amd64 qemu LIMINE_DIR=/path/to/limine
+```
+
+The QEMU profile uses exactly 16 MiB of RAM (`-m 16M`). The build produces a
+small higher-half ELF at `build/NullKernel/amd64/null_kernel_amd64.elf`, a
+freestanding `init.elf`, and an `@/` initrd tarball. Full details are in
+[docs/AMD64.md](docs/AMD64.md).
 
 ### Raspberry Pi Pico W
 

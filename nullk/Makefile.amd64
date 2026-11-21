@@ -1,0 +1,161 @@
+# null_kernel AMD64 build: tiny higher-half kernel + freestanding userspace.
+#
+# Selected via the main Makefile with `make BOARD=amd64 ...`. Everything is
+# freestanding; no cross compiler is required because the kernel is x86-64 and
+# can be built with the host gcc/ld pair. Limine itself is not bundled.
+
+ROOT := $(abspath ..)
+BUILD := $(ROOT)/build/NullKernel
+OUT := $(BUILD)/amd64
+HOST_OUT := $(BUILD)/host_amd64
+
+CC ?= gcc
+LD ?= ld
+OBJCOPY ?= objcopy
+PYTHON ?= python3
+
+COMMON_FLAGS := -std=c11 -ffreestanding -fno-builtin -fno-stack-protector \
+                -nostdlib -Wall -Wextra -O2 -m64 -mno-red-zone \
+                -fno-pic -fno-pie -fno-asynchronous-unwind-tables \
+                -Iinclude -Ink -Iapps/include
+KERNEL_CFLAGS := $(COMMON_FLAGS) -Werror -mcmodel=kernel
+USER_CFLAGS := $(COMMON_FLAGS) -Werror
+HOST_CFLAGS := -std=c11 -Wall -Wextra -Werror -O2 -Iinclude -Iapps/include \
+               -DNK_ARCH_HOST
+
+KERNEL_ELF := $(OUT)/null_kernel_amd64.elf
+KERNEL_BIN := $(OUT)/null_kernel_amd64.bin
+USER_ELF := $(OUT)/init.elf
+INITRD := $(OUT)/initrd.tar
+
+KERNEL_SRC := kernel64/main.c kernel64/task.c kernel64/syscall.c \
+              kernel64/elfload.c kernel64/uartload.c kernel64/fallback_shell.c \
+              shared/printk.c shared/vfs.c shared/elf64.c shared/acpi.c \
+              shared/sandbox.c shared/shell64.c shared/usb_as_sata.c \
+              arch/amd64/boot.c arch/amd64/arch.c arch/amd64/paging.c \
+              arch/amd64/idt.c arch/amd64/uart.c
+KERNEL_ASM := arch/amd64/context.S
+KERNEL_OBJ := $(patsubst %.c,$(OUT)/obj/%.o,$(KERNEL_SRC)) \
+              $(patsubst %.S,$(OUT)/obj/%.o,$(KERNEL_ASM))
+
+USER_SRC := apps/init64/main.c apps/sh64/main.c apps/usb64/main.c \
+            apps/libnk64.c shared/shell64.c shared/sandbox.c \
+            shared/usb_as_sata.c shared/printk.c
+USER_OBJ := $(patsubst %.c,$(OUT)/obj/user/%.o,$(USER_SRC))
+
+HOST_SRC := shared/printk.c shared/vfs.c shared/elf64.c shared/acpi.c \
+            shared/sandbox.c shared/shell64.c shared/usb_as_sata.c \
+            tests/test_amd64.c
+HOST_OBJ := $(patsubst %.c,$(HOST_OUT)/%.o,$(HOST_SRC))
+HOST_BIN := $(HOST_OUT)/test_amd64
+
+.PHONY: all test qemu clean limine
+
+all: $(KERNEL_ELF) $(KERNEL_BIN) $(USER_ELF) $(INITRD)
+
+$(OUT)/obj/%.o: %.c
+	@mkdir -p $(dir $@)
+	$(CC) $(KERNEL_CFLAGS) -c $< -o $@
+
+$(OUT)/obj/%.o: %.S
+	@mkdir -p $(dir $@)
+	$(CC) $(KERNEL_CFLAGS) -c $< -o $@
+
+$(OUT)/obj/user/%.o: %.c
+	@mkdir -p $(dir $@)
+	$(CC) $(USER_CFLAGS) -c $< -o $@
+
+$(KERNEL_ELF): $(KERNEL_OBJ) arch/amd64/linker.ld
+	@mkdir -p $(dir $@)
+	$(LD) -nostdlib -static -no-pie -z noexecstack \
+		-T arch/amd64/linker.ld -Map=$(OUT)/null_kernel_amd64.map \
+		-o $@ $(KERNEL_OBJ)
+
+$(KERNEL_BIN): $(KERNEL_ELF)
+	$(OBJCOPY) -O binary $< $@
+
+$(USER_ELF): $(USER_OBJ) apps/user.ld
+	@mkdir -p $(dir $@)
+	$(LD) -nostdlib -static -no-pie -z noexecstack \
+		-T apps/user.ld -Map=$(OUT)/init.map -o $@ $(USER_OBJ)
+
+$(INITRD): $(KERNEL_ELF) $(USER_ELF) limine.cfg tools/mkinitrd.py
+	@mkdir -p $(dir $@)
+	$(PYTHON) tools/mkinitrd.py --kernel $(KERNEL_ELF) --init $(USER_ELF) \
+		--shell $(USER_ELF) --usb $(USER_ELF) --out $@
+
+$(HOST_OUT)/%.o: %.c
+	@mkdir -p $(dir $@)
+	$(CC) $(HOST_CFLAGS) -c $< -o $@
+
+$(HOST_BIN): $(HOST_OBJ)
+	@mkdir -p $(dir $@)
+	$(CC) $(HOST_CFLAGS) -o $@ $(HOST_OBJ)
+
+test: $(HOST_BIN)
+	$(HOST_BIN)
+
+# Booting requires Limine's bootloader files. Set LIMINE_DIR to the directory
+# containing them. Both the classic names (limine.sys / limine-cd.bin /
+# limine-cd-efi.bin) and the Limine 12.x names (limine-bios.sys /
+# limine-bios-cd.bin / limine-uefi-cd.bin) are accepted. Use XORRISO=... if
+# xorriso is not on PATH.
+LIMINE_DIR ?= /usr/share/limine
+XORRISO    ?= xorriso
+LIMINE     ?= $(LIMINE_DIR)/limine
+ISO := $(OUT)/null_kernel.iso
+
+$(ISO): $(KERNEL_ELF) $(INITRD) limine.cfg
+	@SYS="$(LIMINE_DIR)/limine-bios.sys"; \
+	CD="$(LIMINE_DIR)/limine-bios-cd.bin"; \
+	EFI="$(LIMINE_DIR)/limine-uefi-cd.bin"; \
+	[ -f "$$SYS" ] || SYS="$(LIMINE_DIR)/limine.sys"; \
+	[ -f "$$CD" ] || CD="$(LIMINE_DIR)/limine-cd.bin"; \
+	[ -f "$$EFI" ] || EFI="$(LIMINE_DIR)/limine-cd-efi.bin"; \
+	if [ ! -f "$$SYS" ] || [ ! -f "$$CD" ]; then \
+		echo "Limine files not found in $(LIMINE_DIR)."; \
+		echo "Install Limine and/or pass LIMINE_DIR=/path/to/limine"; \
+		exit 1; \
+	fi; \
+	mkdir -p $(OUT)/isodir/build/NullKernel/amd64 $(OUT)/isodir/limine; \
+	cp $(KERNEL_ELF) $(OUT)/isodir/build/NullKernel/amd64/null_kernel_amd64.elf; \
+	cp $(INITRD) $(OUT)/isodir/build/NullKernel/amd64/initrd.tar; \
+	cp limine.cfg $(OUT)/isodir/limine/limine.conf; \
+	cp limine.cfg $(OUT)/isodir/limine/limine.cfg; \
+	cp "$$SYS" $(OUT)/isodir/limine/limine-bios.sys; \
+	cp "$$SYS" $(OUT)/isodir/limine/limine.sys; \
+	cp "$$CD" $(OUT)/isodir/limine/limine-bios-cd.bin; \
+	if [ -f "$$EFI" ]; then cp "$$EFI" $(OUT)/isodir/limine/limine-uefi-cd.bin; fi; \
+	if ! command -v $(XORRISO) >/dev/null 2>&1 && [ ! -x $(XORRISO) ]; then \
+		echo "$(XORRISO) is required to build the bootable ISO"; exit 1; \
+	fi; \
+	if [ -f "$$EFI" ]; then \
+		$(XORRISO) -as mkisofs -R -r -J -b limine/limine-bios-cd.bin \
+			-no-emul-boot -boot-load-size 4 -boot-info-table \
+			--efi-boot limine/limine-uefi-cd.bin \
+			-efi-boot-part --efi-boot-image --protective-msdos-label \
+			$(OUT)/isodir -o $@; \
+	else \
+		$(XORRISO) -as mkisofs -R -r -J -b limine/limine-bios-cd.bin \
+			-no-emul-boot -boot-load-size 4 -boot-info-table \
+			$(OUT)/isodir -o $@; \
+	fi; \
+	if [ -x "$(LIMINE)" ]; then \
+		"$(LIMINE)" bios-install $@ 2>/dev/null || true; \
+	elif command -v limine-deploy >/dev/null 2>&1; then \
+		limine-deploy $@ 2>/dev/null || true; \
+	fi
+
+limine: $(ISO)
+
+qemu: $(ISO)
+	@command -v qemu-system-x86_64 >/dev/null 2>&1 || \
+		{ echo "qemu-system-x86_64 is not installed"; exit 1; }
+	qemu-system-x86_64 -m 16M -M q35 -cdrom $(ISO) -nographic -serial mon:stdio
+
+clean:
+	rm -rf $(OUT) $(HOST_OUT)
+
+-include $(KERNEL_OBJ:.o=.d)
+-include $(USER_OBJ:.o=.d)
+-include $(HOST_OBJ:.o=.d)
