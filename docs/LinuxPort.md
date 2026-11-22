@@ -22,10 +22,12 @@ directly.
   `/dev/dri/card0` (with a 1024x768 fallback for headless virtio-GPU and a
   periodic `DIRTYFB` flush so the host repaints it), so InterfaceKit can use the
   VGA/virtio-GPU adapter;
-- console routing that gives the `nk)` shell Linux's `/dev/console`: `tty0`
-  (VGA/VT plus keyboard) by default, or a serial console when
-  `console=ttyS0,...` is set, while background service chatter goes to
-  `/@/data/system/nullk.log`.
+- a standalone framebuffer console: the shim mirrors init/`nksh` output onto
+  the DRM scanout from `FB_INFO`/`FB_MAP` and reads keys from
+  `/dev/input/event*`, so the `nk)` prompt works without InterfaceKit, fbcon or
+  a serial UART;
+- console routing that follows Linux's `/dev/console` for serial/VT output while
+  background service chatter goes to `/@/data/system/nullk.log`.
 
 The first phase is out-of-tree. Optional Linux 6.6.162 LTS patches belong in
 `nullk/ports/linux/patches/optional/` and hook the exported

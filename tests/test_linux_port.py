@@ -15,9 +15,11 @@ class NativeLinuxPortTests(unittest.TestCase):
             "Kbuild",
             "include/nullk_linux/abi3_ioctl.h",
             "include/nullk_linux/abi64_kernel.h",
+            "include/nullk_linux/fb_console.h",
             "include/nullk_linux/parasite.h",
             "include/nullk_linux/user_shim.h",
             "src/lkm/main.c",
+            "src/user/fb_console.c",
             "src/user/init_pid1.c",
             "src/user/initramfs_init.c",
             "src/user/nk64_syscall_linux.c",
@@ -49,13 +51,30 @@ class NativeLinuxPortTests(unittest.TestCase):
         self.assertIn("DRM_IOCTL_MODE_SETCRTC", shim)
         self.assertIn("DRM_IOCTL_MODE_DIRTYFB", shim)
 
-    def test_tty0_console_is_documented(self):
+    def test_standalone_framebuffer_console(self):
+        shim = (PORT_ROOT / "src/user/nk64_syscall_linux.c").read_text()
+        console = (PORT_ROOT / "src/user/fb_console.c").read_text()
+        makefile = (PORT_ROOT / "Makefile").read_text()
+
+        self.assertIn("nk64_fb_console_init", shim)
+        self.assertIn("nk64_fb_console_input_get", shim)
+        self.assertIn("nk64_fb_console_output_push", shim)
+        self.assertIn("poll(&pfd, 1u, 10)", shim)
+        self.assertIn("/dev/input/event%u", console)
+        self.assertIn("EVIOCGBIT(EV_KEY", console)
+        self.assertIn("interfacekit_glyph", console)
+        self.assertNotIn("interfacekit_server", console)
+        self.assertIn("src/user/fb_console.c", makefile)
+
+    def test_console_paths_are_documented(self):
         readme = (PORT_ROOT / "README.md").read_text()
         overview = (REPO_ROOT / "docs" / "LinuxPort.md").read_text()
         self.assertIn("console=ttyS0", readme)
         self.assertIn("tty0", readme)
-        self.assertIn("keyboard input", readme)
-        self.assertIn("tty0", overview)
+        self.assertIn("framebuffer console", readme)
+        self.assertIn("/dev/input/event*", readme)
+        self.assertIn("framebuffer console", overview)
+        self.assertIn("/dev/input/event*", overview)
 
 
 if __name__ == "__main__":

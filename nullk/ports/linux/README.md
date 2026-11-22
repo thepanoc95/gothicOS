@@ -79,22 +79,38 @@ ioctl is logged at `pr_debug()` as well.
 
 ### Console selection
 
-`nksh` inherits fd 0/1 from `/init`, so it follows Linux's `/dev/console`. On a
-normal PC with no serial UART, omit `console=ttyS0,...` from the kernel cmdline:
+`nksh` inherits fd 0/1 from `/init`, so it follows Linux's `/dev/console`. There
+are two independent console paths, neither of which needs InterfaceKit:
 
-```text
-init=/init rw loglevel=4
-```
+- **DRM framebuffer console.** At `nk64_linux_init()` the shim probes
+  `FB_INFO`/`FB_MAP` and, when a framebuffer is available, starts a standalone
+  console on the scanout buffer. Init/nksh output is mirrored there, and keys
+  are read directly from `/dev/input/event*`. This works with `-vga virtio` or
+  `-vga none -device virtio-gpu-pci`, even though the kernel has no `CONFIG_FB`
+  or `DRM_FBDEV_EMULATION`.
+- **Legacy VGA/VT console.** With `-vga std` and no serial override, Linux uses
+  `tty0` for `/dev/console`, so the `nk)` prompt and keyboard also work without
+  any DRM framebuffer.
 
-Linux then uses `tty0`, and the `nk)` prompt plus keyboard input work on the
-VGA/VT console without InterfaceKit or a desktop. Add the serial override only
-when you want the shell on a UART:
+Add `console=ttyS0,115200` only when you specifically want a UART console:
 
 ```text
 console=ttyS0,115200 init=/init rw loglevel=4
 ```
 
+The framebuffer console mirrors the same output when a DRM card is present.
 Background service chatter still goes to `/@/data/system/nullk.log`.
+
+For a visible QEMU framebuffer console:
+
+```sh
+qemu-system-x86_64 ... -vga virtio -vnc :99 \
+  -append 'init=/init rw loglevel=4'
+```
+
+The `nk)` prompt appears in VNC and accepts keyboard input as soon as init
+starts. Running `ui start` after that lets InterfaceKit paint over the same
+scanout buffer.
 
 InterfaceKit stays opt-in. With a virtio-GPU or real DRM card, `FB_INFO` and
 `FB_MAP` return a real scanout buffer so the desktop and future UI work under
