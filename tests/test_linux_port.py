@@ -49,6 +49,14 @@ class NativeLinuxPortTests(unittest.TestCase):
         self.assertIn("DRM_IOCTL_MODE_SETCRTC", shim)
         self.assertIn("DRM_IOCTL_MODE_DIRTYFB", shim)
 
+    def test_tty0_console_is_documented(self):
+        readme = (PORT_ROOT / "README.md").read_text()
+        overview = (REPO_ROOT / "docs" / "LinuxPort.md").read_text()
+        self.assertIn("console=ttyS0", readme)
+        self.assertIn("tty0", readme)
+        self.assertIn("keyboard input", readme)
+        self.assertIn("tty0", overview)
+
 
 if __name__ == "__main__":
     unittest.main()

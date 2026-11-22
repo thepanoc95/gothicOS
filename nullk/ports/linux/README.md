@@ -77,6 +77,25 @@ The ABI v3 shell owns the visible console. Output from background services
 `/@/data/system/nullk.log` so the `nk)` prompt is not trampled. The LKM's LOG
 ioctl is logged at `pr_debug()` as well.
 
+### Console selection
+
+`nksh` inherits fd 0/1 from `/init`, so it follows Linux's `/dev/console`. On a
+normal PC with no serial UART, omit `console=ttyS0,...` from the kernel cmdline:
+
+```text
+init=/init rw loglevel=4
+```
+
+Linux then uses `tty0`, and the `nk)` prompt plus keyboard input work on the
+VGA/VT console without InterfaceKit or a desktop. Add the serial override only
+when you want the shell on a UART:
+
+```text
+console=ttyS0,115200 init=/init rw loglevel=4
+```
+
+Background service chatter still goes to `/@/data/system/nullk.log`.
+
 InterfaceKit stays opt-in. With a virtio-GPU or real DRM card, `FB_INFO` and
 `FB_MAP` return a real scanout buffer so the desktop and future UI work under
 Linux. Headless virtio-GPU still gets a 1024x768 dumb-buffer fallback, and the
