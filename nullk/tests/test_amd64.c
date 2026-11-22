@@ -492,6 +492,7 @@ static void test_sandbox(void)
 static char g_shell_out[8192];
 static uint32_t g_shell_out_len;
 static char g_last_exec[NK_VFS_PATH_MAX];
+static uint32_t g_ui_start_count;
 
 static void shell_out_reset(void)
 {
@@ -522,6 +523,13 @@ static nk_status_t shell_exec(const char *path)
     return NK_STATUS_OK;
 }
 
+static nk_status_t shell_ui_start(void)
+{
+    g_ui_start_count++;
+    return (g_ui_start_count == 1u) ? NK_STATUS_OK
+                                    : NK_STATUS_ALREADY_EXISTS;
+}
+
 static void test_shell(void)
 {
     static uint8_t mem[64];
@@ -539,6 +547,8 @@ static void test_shell(void)
     ctx.readdir = nk_vfs_readdir;
     ctx.read = nk_vfs_read_file;
     ctx.exec = shell_exec;
+    ctx.ui_start = shell_ui_start;
+    g_ui_start_count = 0u;
     (void)nk_sandbox_init(&ctx.sandbox, (uint64_t)(uintptr_t)mem,
                           sizeof(mem), 0u);
     ctx.ticks = 123u;
@@ -556,7 +566,8 @@ static void test_shell(void)
     shell_out_reset();
     strcpy(line, "help");
     CHECK("shell help", (nk_shell64_exec(&ctx, line) == 0) &&
-                           (strstr(g_shell_out, "mem rd") != (char *)0));
+                           (strstr(g_shell_out, "mem rd") != (char *)0) &&
+                           (strstr(g_shell_out, "ui start") != (char *)0));
 
     shell_out_reset();
     strcpy(line, "ls");
@@ -589,6 +600,27 @@ static void test_shell(void)
     strcpy(line, "exec @/data/hello.txt");
     CHECK("shell exec", (nk_shell64_exec(&ctx, line) == 0) &&
                             (strcmp(g_last_exec, "@/data/hello.txt") == 0));
+
+    shell_out_reset();
+    strcpy(line, "ui start");
+    CHECK("shell ui start", (nk_shell64_exec(&ctx, line) == 0) &&
+                                (g_ui_start_count == 1u) &&
+                                (strstr(g_shell_out, "InterfaceKit started") !=
+                                 (char *)0));
+
+    shell_out_reset();
+    strcpy(line, "ui start");
+    CHECK("shell ui start again", (nk_shell64_exec(&ctx, line) == 0) &&
+                                      (g_ui_start_count == 2u) &&
+                                      (strstr(g_shell_out, "already running") !=
+                                       (char *)0));
+
+    shell_out_reset();
+    strcpy(line, "ui stop");
+    CHECK("shell ui usage", (nk_shell64_exec(&ctx, line) == 0) &&
+                                (g_ui_start_count == 2u) &&
+                                (strstr(g_shell_out, "usage: ui start") !=
+                                 (char *)0));
 
     shell_out_reset();
     strcpy(line, "bogus");

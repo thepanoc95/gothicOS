@@ -17,7 +17,8 @@ Source tree: `nullk/securekernel/`.
 All ring 3 services live in the same `init.elf` image, so the policy and audit
 ring are shared state in that address space:
 
-- `init64` creates the InterfaceKit server and demo, then the `SecureKernel` task.
+- `init64` creates the `SecureKernel` task; the optional InterfaceKit server and
+  demo are started later by `nksh` through `ui start`.
 - The service installs the built-in policy, **locks it**, and logs policy
   decisions drained from the audit ring.
 - The `nksh` shell calls `nk_securekernel_enforce()` on every `exec`, passing

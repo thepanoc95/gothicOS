@@ -36,12 +36,14 @@ int interfacekit_window_raise(uint32_t id);
 
 /* Returns the drawable back buffer, or NULL for an invalid window. */
 interfacekit_pixmap_t *interfacekit_window_backbuffer(uint32_t id);
+/* Swaps front/back and marks the window dirty; z-order and focus are unchanged.
+ * Use interfacekit_window_raise() when a click should focus a window. */
 int interfacekit_window_present(uint32_t id);
 int interfacekit_window_push_event(uint32_t id,
                                    const nk64_input_event_t *event);
 uint32_t interfacekit_window_pop_event(uint32_t id, nk64_input_event_t *out);
 
-/* Ring-3 service entry point, created by init64. */
+/* Ring-3 service entry point, created on demand by gothicOS userland. */
 void interfacekit_server_entry(void);
 
 #ifdef __cplusplus

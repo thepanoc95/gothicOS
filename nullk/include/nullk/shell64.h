@@ -22,6 +22,8 @@ typedef struct {
     nk_status_t (*read)(const char *path, uint32_t offset, void *buf,
                         uint32_t cap, uint32_t *out_len);
     nk_status_t (*exec)(const char *path);
+    /* Optional gothicOS userland service hook behind `ui start`. */
+    nk_status_t (*ui_start)(void);
     nk_status_t (*usb_read)(uint32_t lun, uint64_t lba, uint32_t count,
                             void *buf);
 

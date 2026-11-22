@@ -26,10 +26,11 @@ static void append_char(char *text, uint32_t *len, char c)
     text[*len] = '\0';
 }
 
-static void handle_events(uint32_t window, char *text, uint32_t *len,
-                          int32_t *mx, int32_t *my, uint32_t *pressed)
+static uint32_t handle_events(uint32_t window, char *text, uint32_t *len,
+                              int32_t *mx, int32_t *my, uint32_t *pressed)
 {
     nk64_input_event_t event;
+    uint32_t changed = 0u;
 
     while (interfacekit_window_pop_event(window, &event) != 0u) {
         if (event.type == (uint32_t)NK64_INPUT_MOUSE_MOVE ||
@@ -49,6 +50,7 @@ static void handle_events(uint32_t window, char *text, uint32_t *len,
             } else {
                 *my = event.dy;
             }
+            changed = 1u;
             if (event.type == (uint32_t)NK64_INPUT_MOUSE_DOWN) {
                 *pressed = 1u;
             } else if (event.type == (uint32_t)NK64_INPUT_MOUSE_UP) {
@@ -64,18 +66,26 @@ static void handle_events(uint32_t window, char *text, uint32_t *len,
             if (*len != 0u) {
                 (*len)--;
                 text[*len] = '\0';
+                changed = 1u;
             }
             continue;
         }
         if (event.code == (uint32_t)NK64_KEY_ENTER) {
             *len = 0u;
             text[0] = '\0';
+            changed = 1u;
             continue;
         }
         if (event.code >= 0x20u && event.code < 0x7fu) {
+            uint32_t before = *len;
+
             append_char(text, len, (char)event.code);
+            if (*len != before) {
+                changed = 1u;
+            }
         }
     }
+    return changed;
 }
 
 static void draw(interfacekit_pixmap_t *pm, const char *text, int32_t mx, int32_t my,
@@ -131,6 +141,9 @@ void interfacekit_demo_entry(void)
     uint32_t window;
     uint32_t frame = 0u;
     uint32_t pressed = 0u;
+    uint32_t dirty = 1u;
+    uint32_t last_anim;
+    uint32_t now;
     int32_t mx = (int32_t)(DEMO_W / 2u);
     int32_t my = (int32_t)(DEMO_H / 2u);
 
@@ -154,11 +167,24 @@ void interfacekit_demo_entry(void)
     }
     nk_printf("[InterfaceKitDemo] window id=%u ready\n", window);
 
+    last_anim = (uint32_t)nk64_ticks();
     for (;;) {
-        handle_events(window, text, &len, &mx, &my, &pressed);
-        draw(interfacekit_window_backbuffer(window), text, mx, my, pressed, frame);
-        (void)interfacekit_window_present(window);
-        frame++;
+        if (handle_events(window, text, &len, &mx, &my, &pressed) != 0u) {
+            dirty = 1u;
+        }
+        /* Animation is intentionally slow: a present is a real screen update. */
+        now = (uint32_t)nk64_ticks();
+        if ((uint32_t)(now - last_anim) >= 10u) {
+            last_anim = now;
+            frame++;
+            dirty = 1u;
+        }
+        if (dirty != 0u) {
+            draw(interfacekit_window_backbuffer(window), text, mx, my, pressed,
+                 frame);
+            (void)interfacekit_window_present(window);
+            dirty = 0u;
+        }
         (void)nk64_sleep(2u);
         (void)nk64_yield();
     }

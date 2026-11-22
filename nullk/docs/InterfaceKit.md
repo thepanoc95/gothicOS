@@ -74,9 +74,11 @@ InterfaceKit server             ring 3: windows, compositing, cursor, routing
 InterfaceKit demo / clients     ring 3: common widgets into back buffers
 ```
 
-`init64` starts the InterfaceKit server first, then the demo, SecureKernel,
-`usb64` and `nksh`. The server calls `FB_MAP` exactly once; later claimants
-receive `NK_STATUS_PERMISSION_DENIED`. The framebuffer is mapped at
+`init64` starts SecureKernel, `usb64` and `nksh` only; it never starts a desktop.
+A gothicOS user runs `ui start` in `nksh` to create the InterfaceKit server and
+demo tasks. This keeps desktop policy in the userland system framework rather
+than in the kernel or early init. The server calls `FB_MAP` exactly once; later
+claimants receive `NK_STATUS_PERMISSION_DENIED`. The framebuffer is mapped at
 `NK64_FB_VBASE` (`0x0000000040000000`) with user read/write and no-execute
 permissions.
 
@@ -107,25 +109,35 @@ overwriting queued input.
 
 - A 1 MiB static RGBA pool backs at most `INTERFACEKIT_MAX_WINDOWS` (8) windows.
 - Each window has a front and back pixmap. `interfacekit_window_backbuffer()`
-  returns the back pixmap; `interfacekit_window_present()` swaps buffers, marks
-  the window dirty and raises it.
-- Input is routed to the topmost window under the pointer. Keyboard events go
-  to the focused window. Client event queues hold 16 records each.
+  returns the back pixmap; `interfacekit_window_present()` swaps buffers and
+  marks the window dirty. It does **not** change z-order or focus; callers use
+  `interfacekit_window_raise()` for that.
+- Input is routed to the topmost window under the pointer. A fresh mouse-down
+  raises and focuses that window; mouse-up does not. Keyboard events go to the
+  focused window. Client event queues hold 16 records each.
 - The desktop composites a vertical gradient, taskbar, window titles and client
-  content in z-order.
+  content in z-order into a bounded 4 MiB shadow framebuffer. It copies a
+  complete frame to the claimed framebuffer only when window state, focus or the
+  cursor changes. Dirty-only presentation avoids the QEMU flicker caused by
+  repainting every scheduler tick and by repeated raise/focus churn.
 
 Clients never call framebuffer syscalls and never touch PS/2 ports.
 
 ## Demo client
 
-`apps/interfacekit_demo/main.c` creates one window and renders the common
-widgets through `interfacekit_widgets.h`:
+`apps/interfacekit_demo/main.c` is created alongside the server by `ui start`.
+It creates one window and renders the common widgets through
+`interfacekit_widgets.h`:
 
 - a typed text label (printable keys append, Backspace edits, Enter clears),
 - a pressed-state Send button,
 - an animated progress bar,
 - a toggle and slider on full desktop profiles,
 - mouse position and click feedback.
+
+To keep updates stable, the demo presents once initially, then only on input
+changes or every ten scheduler ticks for the animation. It does not present on
+every loop iteration.
 
 The AMD64 demo uses the server API from `interfacekit_server.h`. Embedded code
 uses only `interfacekit.h` and `interfacekit_widgets.h`.
@@ -149,10 +161,11 @@ make -C nullk BOARD=amd64 qemu-ui LIMINE_DIR=/path/to/limine
 ```
 
 `qemu-ui` boots the same AMD64 ISO without `-nographic` so Limine can provide a
-framebuffer. The original `qemu` target remains headless with serial output; if
-no framebuffer is reported, InterfaceKit logs that the desktop is disabled and
-other services continue normally. Serial log lines from the desktop path are
-prefixed `[InterfaceKit]` and `[InterfaceKitDemo]`.
+framebuffer. The desktop does **not** appear automatically: at the `nk)` prompt,
+run `ui start`. The original `qemu` target remains headless with serial output;
+if no framebuffer is reported, InterfaceKit logs that the desktop is disabled
+and other services continue normally. Serial log lines from the desktop path
+are prefixed `[InterfaceKit]`, `[InterfaceKitDemo]` and `[nksh]`.
 
 `make -C nullk BOARD=amd64 test` runs two InterfaceKit host suites:
 
@@ -169,7 +182,8 @@ Both suites link the exact `shared/interfacekit_*.c` objects used by the images.
 - No GPU acceleration, hardware cursor, UTF-8 text or window resizing.
 - PS/2 only on AMD64; USB HID is not part of this profile.
 - The AMD64 framebuffer claim is permanent for the boot and is not released if
-  the UI task exits.
+  the UI task exits. Framebuffers whose packed size exceeds the 4 MiB shadow
+  buffer start with the desktop disabled.
 - The shared-address-space desktop model is cooperative, not a security
   boundary between graphical clients.
 - No ARM64 board tree exists yet; the portable widget layer is ARM64-ready but

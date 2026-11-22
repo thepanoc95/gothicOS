@@ -252,6 +252,7 @@ void nk_shell64_help(nk_shell64_ctx_t *ctx)
                "mem rd <hex> [len]\n"
                "mem wr <hex> <hexbytes>\n"
                "exec <path>\n"
+               "ui start\n"
                "usb lun <n>\n"
                "usb load <n>\n"
                "clear\n"
@@ -429,6 +430,28 @@ static void nk_sh_cmd_exec(nk_shell64_ctx_t *ctx, const char *path)
     nk_sh_printf(ctx, "exec %s: %u\n", path, status);
 }
 
+static void nk_sh_cmd_ui(nk_shell64_ctx_t *ctx, uint32_t argc, char **argv)
+{
+    nk_status_t status;
+
+    if (argc < 2u || !nk_sh_streq(argv[1], "start")) {
+        nk_sh_puts(ctx, "usage: ui start\n");
+        return;
+    }
+    if (ctx->ui_start == (nk_status_t (*)(void))0) {
+        nk_sh_puts(ctx, "ui: unavailable in this shell\n");
+        return;
+    }
+    status = ctx->ui_start();
+    if (status == NK_STATUS_OK) {
+        nk_sh_puts(ctx, "ui: InterfaceKit started\n");
+    } else if (status == NK_STATUS_ALREADY_EXISTS) {
+        nk_sh_puts(ctx, "ui: InterfaceKit is already running\n");
+    } else {
+        nk_sh_printf(ctx, "ui start: %u\n", (uint32_t)status);
+    }
+}
+
 static void nk_sh_cmd_usb(nk_shell64_ctx_t *ctx, uint32_t argc, char **argv)
 {
     uint8_t sector[512];
@@ -559,6 +582,8 @@ int nk_shell64_exec(nk_shell64_ctx_t *ctx, char *line)
         } else {
             nk_sh_cmd_exec(ctx, argv[1]);
         }
+    } else if (nk_sh_streq(argv[0], "ui")) {
+        nk_sh_cmd_ui(ctx, argc, argv);
     } else if (nk_sh_streq(argv[0], "usb")) {
         nk_sh_cmd_usb(ctx, argc, argv);
     } else if (nk_sh_streq(argv[0], "clear")) {

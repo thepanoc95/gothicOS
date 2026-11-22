@@ -23,8 +23,9 @@ The kernel maps a NULL pointer at the top of the user stack and jumps to
 `_start`. There is no libc, no dynamic linker and no POSIX layer.
 
 All services are linked into one small `init.elf` for the test profile;
-`_start` creates the InterfaceKit server and demo, SecureKernel, `usb64` and
-`nksh`, then sleeps forever.
+`_start` creates SecureKernel, `usb64` and `nksh`, then sleeps forever. The
+InterfaceKit server and demo are optional ring-3 tasks started from `nksh`
+with `ui start`; no desktop environment is part of the default boot.
 
 ## Build and test
 
@@ -114,6 +115,7 @@ common commands are:
 | `cat <path>` | print a file |
 | `echo <args>` | echo text |
 | `exec <path>` | load and run an ELF image in a new task |
+| `ui start` | opt in to the gothicOS desktop: start InterfaceKit and its demo |
 | `mem rd <hex> [len]` | read up to 256 bytes from the granted sandbox |
 | `mem wr <hex> <hexbytes>` | write hex bytes into the granted sandbox |
 | `usb lun <n>` | show the NKUSBPRG header on LUN `n` |
@@ -144,11 +146,13 @@ owns all drawing, windows, the cursor and input routing; the demo shows the
 client API from `include/nullk/interfacekit_server.h` and the common grained-glass
 widgets from `include/nullk/interfacekit_widgets.h`.
 
-Boot with `make -C nullk BOARD=amd64 qemu-ui LIMINE_DIR=/path/to/limine` to see
-it. If Limine reports no framebuffer, InterfaceKit logs `[InterfaceKit] no
-framebuffer reported; desktop disabled` and the serial services continue. See
-[InterfaceKit.md](InterfaceKit.md) for profiles, widgets, ABI, server model,
-controls and limitations.
+Boot with `make -C nullk BOARD=amd64 qemu-ui LIMINE_DIR=/path/to/limine`, then
+type `ui start` at the `nk)` prompt to see it. If Limine reports no framebuffer,
+InterfaceKit logs `[InterfaceKit] no framebuffer reported; desktop disabled` and
+the serial services continue. The compositor draws to a bounded shadow buffer
+and publishes only changed frames, so repeated client presents do not repaint
+the desktop on every tick. See [InterfaceKit.md](InterfaceKit.md) for profiles,
+widgets, ABI, server model, controls and limitations.
 
 ## USB-as-SATA protocol
 

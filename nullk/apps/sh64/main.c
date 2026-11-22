@@ -8,6 +8,7 @@
 #include <stdint.h>
 
 #include "libnk64.h"
+#include "nullk/interfacekit_server.h"
 #include "nullk/printk.h"
 #include "nullk/securekernel.h"
 #include "nullk/shell64.h"
@@ -17,6 +18,7 @@
 
 static nk_shell64_ctx_t shell_ctx;
 static uint8_t g_exec_image[NK_SECUREKERNEL_MAX_IMAGE];
+static uint32_t g_ui_started;
 
 static nk_status_t sh_stat(const char *path, nk_vfs_stat_t *out)
 {
@@ -163,6 +165,31 @@ static nk_status_t sh_exec(const char *path)
     return (nk_status_t)nk64_exec_mem(g_exec_image, len);
 }
 
+static nk_status_t sh_ui_start(void)
+{
+    uint64_t id;
+
+    if (g_ui_started != 0u) {
+        return NK_STATUS_ALREADY_EXISTS;
+    }
+    /* Desktop policy belongs to gothicOS userland, not to init or ring 0. */
+    id = nk64_task_create("InterfaceKit", interfacekit_server_entry, 0, 0);
+    if (id == 0u) {
+        nk_printf("[nksh] failed to start InterfaceKit service\n");
+        return NK_STATUS_INTERNAL_ERROR;
+    }
+    g_ui_started = 1u;
+    nk_printf("[nksh] InterfaceKit task id=%u\n", (uint32_t)id);
+
+    id = nk64_task_create("InterfaceKitDemo", interfacekit_demo_entry, 0, 0);
+    if (id == 0u) {
+        nk_printf("[nksh] failed to start InterfaceKit demo service\n");
+        return NK_STATUS_INTERNAL_ERROR;
+    }
+    nk_printf("[nksh] InterfaceKit demo task id=%u\n", (uint32_t)id);
+    return NK_STATUS_OK;
+}
+
 static nk_status_t sh_usb_read(uint32_t lun, uint64_t lba, uint32_t count,
                                void *buf)
 {
@@ -245,6 +272,7 @@ void shell_service_entry(void)
     shell_ctx.readdir = sh_readdir;
     shell_ctx.read = sh_read;
     shell_ctx.exec = sh_exec;
+    shell_ctx.ui_start = sh_ui_start;
     shell_ctx.usb_read = sh_usb_read;
     shell_ctx.putc = sh_putc;
     shell_ctx.puts = sh_puts;

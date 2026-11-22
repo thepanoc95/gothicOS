@@ -54,8 +54,6 @@ static void report_vfs(void)
 void _start(void)
 {
     nk64_info_t info;
-    uint64_t interfacekit_id;
-    uint64_t interfacekit_demo_id;
     uint64_t secure_id;
     uint64_t usb_id;
     uint64_t shell_id;
@@ -86,29 +84,14 @@ void _start(void)
 
     report_vfs();
 
-    /* All services live in this ELF image; only the kernel is in ring 0. */
-    interfacekit_id = nk64_task_create("InterfaceKit", interfacekit_server_entry, 0, 0);
-    if (interfacekit_id == 0) {
-        nk_printf("[init64] failed to start InterfaceKit service\n");
-        log_line(NK_KERN_ERR, "[init64] InterfaceKit task create failed");
-        nk64_exit(3);
-    }
-    nk_printf("[init64] InterfaceKit task id=%u\n", (uint32_t)interfacekit_id);
-
-    interfacekit_demo_id = nk64_task_create("InterfaceKitDemo", interfacekit_demo_entry, 0, 0);
-    if (interfacekit_demo_id == 0) {
-        nk_printf("[init64] failed to start InterfaceKit demo service\n");
-        log_line(NK_KERN_ERR, "[init64] InterfaceKit demo task create failed");
-        nk64_exit(4);
-    }
-    nk_printf("[init64] InterfaceKit demo task id=%u\n", (uint32_t)interfacekit_demo_id);
-
+    /* All services live in this ELF image; only the kernel is in ring 0.
+     * No desktop is started here: gothicOS userland opts in via `ui start`. */
     secure_id = nk64_task_create("SecureKernel", securekernel_service_entry,
                                  0, 0);
     if (secure_id == 0) {
         nk_printf("[init64] failed to start SecureKernel service\n");
         log_line(NK_KERN_ERR, "[init64] SecureKernel task create failed");
-        nk64_exit(5);
+        nk64_exit(3);
     }
     nk_printf("[init64] SecureKernel task id=%u\n", (uint32_t)secure_id);
 
@@ -116,7 +99,7 @@ void _start(void)
     if (usb_id == 0) {
         nk_printf("[init64] failed to start usb64 service\n");
         log_line(NK_KERN_ERR, "[init64] usb64 task create failed");
-        nk64_exit(6);
+        nk64_exit(4);
     }
     nk_printf("[init64] usb64 task id=%u\n", (uint32_t)usb_id);
 
@@ -124,11 +107,12 @@ void _start(void)
     if (shell_id == 0) {
         nk_printf("[init64] failed to start nksh service\n");
         log_line(NK_KERN_ERR, "[init64] nksh task create failed");
-        nk64_exit(7);
+        nk64_exit(5);
     }
     nk_printf("[init64] nksh task id=%u\n", (uint32_t)shell_id);
 
-    log_line(NK_KERN_INFO, "[init64] userspace services online");
+    nk_printf("[init64] userspace services online; no desktop started\n");
+    log_line(NK_KERN_INFO, "[init64] userspace services online; no desktop started");
 
     /* Monitor forever; never fall through out of _start. */
     for (;;) {
