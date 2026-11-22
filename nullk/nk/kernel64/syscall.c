@@ -423,8 +423,11 @@ uint64_t nk64_dispatch_syscall(uint64_t n, uint64_t a0, uint64_t a1,
         if (bytes == 0u || bytes > (64u * 1024u * 1024u) || cr3 == 0u) {
             return (uint64_t)NK_STATUS_INTERNAL_ERROR;
         }
+        /* The display scans these bytes while ring 3 writes them. A cached
+         * alias can leave scanout with stale or partially evicted pixels; use
+         * a strong uncacheable user mapping for the claimed framebuffer. */
         nk64_vmm_map(cr3, (uint64_t)NK64_FB_VBASE, nk64_boot.fb.phys, bytes,
-                     NK64_PAGE_USER_RW | NK64_PAGE_NX);
+                     NK64_PAGE_USER_UC | NK64_PAGE_NX);
         g_fb_claimed = 1u;
         return (uint64_t)NK64_FB_VBASE;
     }

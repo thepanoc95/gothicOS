@@ -20,6 +20,8 @@
 #define INTERFACEKIT_MAX_W       480u
 #define INTERFACEKIT_MAX_H       320u
 #define INTERFACEKIT_SHADOW_BYTES (4u * 1024u * 1024u)
+#define INTERFACEKIT_CURSOR_W     8u
+#define INTERFACEKIT_CURSOR_H     14u
 
 typedef struct {
     uint32_t id;
@@ -51,12 +53,22 @@ static int32_t g_cursor_y;
 static interfacekit_framebuffer_t g_fb;
 static uint32_t g_fb_ok;
 
-/* The compositor draws into this bounded shadow first. Only a complete frame
- * is copied to the claimed framebuffer, so QEMU never sees half-composited
- * desktop state. */
+/* The compositor draws into this bounded shadow first. Only complete, changed
+ * rectangles are copied to the claimed framebuffer, so scanout never sees a
+ * half-composited desktop or a full-screen repaint during cursor movement. */
 static uint8_t g_shadow[INTERFACEKIT_SHADOW_BYTES] __attribute__((aligned(16)));
 static interfacekit_framebuffer_t g_shadow_fb;
-static uint32_t g_compose_dirty = 1u;
+
+typedef struct {
+    uint32_t full;
+    int32_t x0;
+    int32_t y0;
+    int32_t x1;
+    int32_t y1;
+} interfacekit_dirty_t;
+
+static interfacekit_dirty_t g_dirty;
+static uint32_t g_compose_dirty;
 
 static void copy_string(char *dst, const char *src, uint32_t cap)
 {
@@ -76,7 +88,80 @@ static void copy_string(char *dst, const char *src, uint32_t cap)
 
 static void mark_dirty(void)
 {
+    g_dirty.full = 1u;
     g_compose_dirty = 1u;
+}
+
+static void mark_dirty_rect(int32_t x, int32_t y, uint32_t w, uint32_t h)
+{
+    int32_t x0;
+    int32_t y0;
+    int32_t x1;
+    int32_t y1;
+
+    if (g_dirty.full != 0u || w == 0u || h == 0u || g_fb_ok == 0u) {
+        return;
+    }
+    x0 = x < 0 ? 0 : x;
+    y0 = y < 0 ? 0 : y;
+    if ((uint32_t)x0 >= g_fb.width || (uint32_t)y0 >= g_fb.height) {
+        return;
+    }
+    x1 = x + (int32_t)w;
+    y1 = y + (int32_t)h;
+    if (x1 < x0 || y1 < y0) {
+        return;
+    }
+    if (x1 > (int32_t)g_fb.width) {
+        x1 = (int32_t)g_fb.width;
+    }
+    if (y1 > (int32_t)g_fb.height) {
+        y1 = (int32_t)g_fb.height;
+    }
+    if (g_dirty.x1 <= g_dirty.x0 || g_dirty.y1 <= g_dirty.y0) {
+        g_dirty.x0 = x0;
+        g_dirty.y0 = y0;
+        g_dirty.x1 = x1;
+        g_dirty.y1 = y1;
+    } else {
+        if (x0 < g_dirty.x0) g_dirty.x0 = x0;
+        if (y0 < g_dirty.y0) g_dirty.y0 = y0;
+        if (x1 > g_dirty.x1) g_dirty.x1 = x1;
+        if (y1 > g_dirty.y1) g_dirty.y1 = y1;
+    }
+    g_compose_dirty = 1u;
+}
+
+static void mark_window_rect(const interfacekit_window_t *window)
+{
+    mark_dirty_rect(window->x, window->y,
+                    window->width + 2u * INTERFACEKIT_BORDER,
+                    window->height + INTERFACEKIT_TITLE_H +
+                        2u * INTERFACEKIT_BORDER);
+}
+
+static void mark_taskbar(void)
+{
+    mark_dirty_rect(0, (int32_t)(g_fb.height - INTERFACEKIT_TASKBAR_H),
+                    g_fb.width, INTERFACEKIT_TASKBAR_H);
+}
+
+static void mark_cursor(int32_t x, int32_t y)
+{
+    mark_dirty_rect(x, y, INTERFACEKIT_CURSOR_W, INTERFACEKIT_CURSOR_H);
+}
+
+static interfacekit_dirty_t take_dirty(void)
+{
+    interfacekit_dirty_t result = g_dirty;
+
+    g_dirty.full = 0u;
+    g_dirty.x0 = 0;
+    g_dirty.y0 = 0;
+    g_dirty.x1 = 0;
+    g_dirty.y1 = 0;
+    g_compose_dirty = 0u;
+    return result;
 }
 
 static uint8_t *pool_alloc(uint32_t bytes)
@@ -171,7 +256,8 @@ uint32_t interfacekit_window_create(const char *title, int32_t x, int32_t y,
                    (interfacekit_rect_t){0, 0, width, height},
                    interfacekit_rgba(24u, 28u, 40u, 255u));
     g_focused = window->id;
-    mark_dirty();
+    mark_window_rect(window);
+    mark_taskbar();
     return window->id;
 }
 
@@ -197,11 +283,12 @@ int interfacekit_window_destroy(uint32_t id)
     if (window == (interfacekit_window_t *)0) {
         return -1;
     }
+    mark_window_rect(window);
+    mark_taskbar();
     window->id = 0u;            /* pool is bump-only: buffers stay reserved */
     if (g_focused == id) {
         g_focused = 0u;
     }
-    mark_dirty();
     return 0;
 }
 
@@ -212,10 +299,11 @@ int interfacekit_window_move(uint32_t id, int32_t x, int32_t y)
     if (window == (interfacekit_window_t *)0) {
         return -1;
     }
+    mark_window_rect(window);   /* old position */
     window->x = x;
     window->y = y;
     window->dirty = 1u;
-    mark_dirty();
+    mark_window_rect(window);   /* new position */
     return 0;
 }
 
@@ -229,10 +317,17 @@ int interfacekit_window_raise(uint32_t id)
     if (window->z == g_z && g_focused == id) {
         return 0;
     }
+    {
+        interfacekit_window_t *previous = find_window(g_focused);
+
+        if (previous != (interfacekit_window_t *)0) {
+            mark_window_rect(previous);
+        }
+    }
     window->z = ++g_z;
     window->dirty = 1u;
     g_focused = id;
-    mark_dirty();
+    mark_window_rect(window);
     return 0;
 }
 
@@ -258,7 +353,9 @@ int interfacekit_window_present(uint32_t id)
     window->front = window->back;
     window->back = swap;
     window->dirty = 1u;
-    mark_dirty();
+    mark_dirty_rect(window->x + (int32_t)INTERFACEKIT_BORDER,
+                    window->y + (int32_t)INTERFACEKIT_TITLE_H,
+                    window->width, window->height);
     return 0;   /* present is not a raise: use window_raise() for focus */
 }
 
@@ -324,9 +421,10 @@ static void handle_input(void)
 
         if (event->type == (uint32_t)NK64_INPUT_MOUSE_MOVE) {
             if (g_cursor_x != event->x || g_cursor_y != event->y) {
+                mark_cursor(g_cursor_x, g_cursor_y);
                 g_cursor_x = event->x;
                 g_cursor_y = event->y;
-                mark_dirty();
+                mark_cursor(g_cursor_x, g_cursor_y);
             }
         }
         target = window_at(g_cursor_x, g_cursor_y);
@@ -464,23 +562,74 @@ static void compose(void)
                  interfacekit_rgba(245u, 245u, 250u, 255u));
 }
 
-/* Publish one complete shadow frame to the real framebuffer. This is the only
- * place in ring 3 that writes claimed framebuffer pixels. */
-static void flush_shadow(void)
+/* Publish the changed part of the shadow frame to the real framebuffer. This
+ * is the only place in ring 3 that writes claimed framebuffer pixels. */
+static void flush_shadow(const interfacekit_dirty_t *dirty)
 {
+    uint32_t x0;
+    uint32_t y0;
+    uint32_t x1;
+    uint32_t y1;
     uint32_t row;
     uint32_t bytes;
+    uint32_t bytes_per_pixel;
 
-    if (g_fb_ok == 0u) {
+    if (g_fb_ok == 0u || dirty == (const interfacekit_dirty_t *)0) {
         return;
     }
-    bytes = g_fb.width * (g_fb.bpp / 8u);
-    if (bytes == 0u || bytes > g_shadow_fb.pitch) {
+    if (dirty->full != 0u) {
+        x0 = 0u;
+        y0 = 0u;
+        x1 = g_fb.width;
+        y1 = g_fb.height;
+    } else {
+        if (dirty->x1 <= dirty->x0 || dirty->y1 <= dirty->y0) {
+            return;
+        }
+        x0 = (uint32_t)dirty->x0;
+        y0 = (uint32_t)dirty->y0;
+        x1 = (uint32_t)dirty->x1;
+        y1 = (uint32_t)dirty->y1;
+        if (x1 > g_fb.width) x1 = g_fb.width;
+        if (y1 > g_fb.height) y1 = g_fb.height;
+    }
+    bytes_per_pixel = g_fb.bpp / 8u;
+    bytes = (x1 - x0) * bytes_per_pixel;
+    if (bytes == 0u || x1 * bytes_per_pixel > g_shadow_fb.pitch) {
         return;
     }
-    for (row = 0u; row < g_fb.height; row++) {
-        nk_memcpy(g_fb.pixels + (uint64_t)row * g_fb.pitch,
-                  g_shadow_fb.pixels + (uint64_t)row * g_shadow_fb.pitch,
+
+    /* Copy whole dwords where possible; the byte loop is only for odd-sized
+     * frames or unaligned rectangles. */
+    x0 &= ~3u;
+    x1 = (x1 + 3u) & ~3u;
+    if (x1 > g_fb.width) x1 = g_fb.width;
+    if ((bytes_per_pixel == 4u) && (x0 % 4u) == 0u &&
+        (g_fb.pitch % 4u) == 0u && (g_shadow_fb.pitch % 4u) == 0u) {
+        uint32_t *dst = (uint32_t *)(void *)(g_fb.pixels +
+                           (uint64_t)y0 * g_fb.pitch + x0 * 4u);
+        const uint32_t *src = (const uint32_t *)(const void *)(g_shadow_fb.pixels +
+                               (uint64_t)y0 * g_shadow_fb.pitch + x0 * 4u);
+        uint32_t words = x1 - x0;
+
+        for (row = y0; row < y1; row++) {
+            uint32_t i;
+
+            for (i = 0u; i < words; i++) {
+                dst[i] = src[i];
+            }
+            dst = (uint32_t *)(void *)((uint8_t *)dst + g_fb.pitch);
+            src = (const uint32_t *)(const void *)((const uint8_t *)src +
+                                                   g_shadow_fb.pitch);
+        }
+        return;
+    }
+
+    bytes = (x1 - x0) * bytes_per_pixel;
+    for (row = y0; row < y1; row++) {
+        nk_memcpy(g_fb.pixels + (uint64_t)row * g_fb.pitch + x0 * bytes_per_pixel,
+                  g_shadow_fb.pixels + (uint64_t)row * g_shadow_fb.pitch +
+                      x0 * bytes_per_pixel,
                   bytes);
     }
 }
@@ -548,18 +697,23 @@ void interfacekit_server_entry(void)
     g_fb_ok = 1u;
     g_cursor_x = (int32_t)(info.width / 2u);
     g_cursor_y = (int32_t)(info.height / 2u);
-    g_compose_dirty = 1u;
+    mark_dirty();
     g_ready = 1u;
 
     nk_printf("[InterfaceKit] desktop %ux%u @ %u bpp, %u windows ready\n",
               info.width, info.height, info.bpp, (uint32_t)INTERFACEKIT_MAX_WINDOWS);
 
     for (;;) {
+        interfacekit_dirty_t frame_dirty;
+
         handle_input();
         if (g_compose_dirty != 0u) {
-            g_compose_dirty = 0u;
+            /* Snapshot before compositing: writes from the demo task during
+             * this pass stay queued for the next frame instead of being
+             * published from a stale shadow buffer. */
+            frame_dirty = take_dirty();
             compose();
-            flush_shadow();
+            flush_shadow(&frame_dirty);
         }
         (void)nk64_sleep(1u);
         (void)nk64_yield();

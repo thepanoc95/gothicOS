@@ -79,8 +79,8 @@ A gothicOS user runs `ui start` in `nksh` to create the InterfaceKit server and
 demo tasks. This keeps desktop policy in the userland system framework rather
 than in the kernel or early init. The server calls `FB_MAP` exactly once; later
 claimants receive `NK_STATUS_PERMISSION_DENIED`. The framebuffer is mapped at
-`NK64_FB_VBASE` (`0x0000000040000000`) with user read/write and no-execute
-permissions.
+`NK64_FB_VBASE` (`0x0000000040000000`) with user read/write, no-execute and
+strong-uncacheable permissions so the display never reads stale cached pixels.
 
 ABI v3 `TASK_CREATE` places these services in the same address space, so
 clients call the server API directly. There is no IPC serialization in this
@@ -116,10 +116,10 @@ overwriting queued input.
   raises and focuses that window; mouse-up does not. Keyboard events go to the
   focused window. Client event queues hold 16 records each.
 - The desktop composites a vertical gradient, taskbar, window titles and client
-  content in z-order into a bounded 4 MiB shadow framebuffer. It copies a
-  complete frame to the claimed framebuffer only when window state, focus or the
-  cursor changes. Dirty-only presentation avoids the QEMU flicker caused by
-  repainting every scheduler tick and by repeated raise/focus churn.
+  content in z-order into a bounded 4 MiB shadow framebuffer. It publishes only
+  the rectangles changed by window state, focus, presents or cursor movement.
+  Dirty-rectangle presentation avoids the flicker caused by copying a full 4 MiB
+  frame through scanout on every mouse event or animation tick.
 
 Clients never call framebuffer syscalls and never touch PS/2 ports.
 

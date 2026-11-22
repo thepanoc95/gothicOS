@@ -77,6 +77,14 @@ static void nk64_launch_kernel(void) __attribute__((noreturn));
  */
 static void nk64_switch_epilogue(void)
 {
+    uint64_t cr3 = g_tasks[g_current].cr3;
+
+    /* The assembly context switch preserves registers and kernel stacks only.
+     * User tasks can own separate CR3s (exec creates one), so a resumed task
+     * must reinstall its page tables before returning to ring 3. Kernel
+     * mappings are shared in the upper half, making this safe on every
+     * privileged stack. */
+    __asm__ volatile("mov %0, %%cr3" : : "r"(cr3) : "memory");
     nk64_syscall_user_rsp = g_tasks[g_current].user_rsp;
     nk64_current_kstack_top = g_tasks[g_current].syscall_stack;
     g_in_switch = 0;

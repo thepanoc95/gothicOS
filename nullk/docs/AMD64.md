@@ -150,8 +150,9 @@ Boot with `make -C nullk BOARD=amd64 qemu-ui LIMINE_DIR=/path/to/limine`, then
 type `ui start` at the `nk)` prompt to see it. If Limine reports no framebuffer,
 InterfaceKit logs `[InterfaceKit] no framebuffer reported; desktop disabled` and
 the serial services continue. The compositor draws to a bounded shadow buffer
-and publishes only changed frames, so repeated client presents do not repaint
-the desktop on every tick. See [InterfaceKit.md](InterfaceKit.md) for profiles,
+and publishes only changed rectangles through an uncacheable framebuffer alias,
+so cursor movement and repeated client presents do not tear or repaint the whole
+desktop on every tick. See [InterfaceKit.md](InterfaceKit.md) for profiles,
 widgets, ABI, server model, controls and limitations.
 
 ## USB-as-SATA protocol

@@ -94,9 +94,14 @@ uint64_t nk64_vmm_alloc_user_pages(uint64_t cr3, uint64_t vaddr, uint64_t len);
 #define NK64_PAGE_PRESENT (1ULL << 0)
 #define NK64_PAGE_RW (1ULL << 1)
 #define NK64_PAGE_USER (1ULL << 2)
+#define NK64_PAGE_PWT (1ULL << 3)
+#define NK64_PAGE_PCD (1ULL << 4)
 #define NK64_PAGE_NX (1ULL << 63)
 #define NK64_PAGE_KERNEL (NK64_PAGE_PRESENT | NK64_PAGE_RW | NK64_PAGE_NX)
 #define NK64_PAGE_USER_RW (NK64_PAGE_PRESENT | NK64_PAGE_RW | NK64_PAGE_USER)
+/* PWT|PCD with PAT=0 selects a strong uncacheable mapping. Framebuffer memory
+ * must not be cached through our alias: the display scans the same bytes. */
+#define NK64_PAGE_USER_UC (NK64_PAGE_USER_RW | NK64_PAGE_PWT | NK64_PAGE_PCD)
 
 /* Interrupts and timer. */
 void nk64_idt_init(void);
