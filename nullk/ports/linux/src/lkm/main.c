@@ -147,7 +147,8 @@ static long nk64_dispatch_call(nk64_abi3_call_t *call)
                                         len) != 0) {
             return NK64_K_STATUS_INVALID_ARGUMENT;
         }
-        pr_info("[nullk] %.*s\n", (int)len, text);
+        /* Keep host kernel logs quiet: ABI services own their own console. */
+        pr_debug("[nullk] %.*s\n", (int)len, text);
         return NK64_K_STATUS_OK;
 
     case NK64_K_SC_USB_REGISTER: {

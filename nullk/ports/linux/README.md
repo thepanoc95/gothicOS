@@ -69,10 +69,19 @@ Syscall routing:
 | `USB_*` | `/dev/nkabi3` bounded 2-LUN RAM disk |
 | `TASK_CREATE`, `TASK_STATE`, `EXIT`, `EXEC`, `EXEC_MEM` | pthread task model + in-process ELF loader |
 | `MMAP` | Linux anonymous mapping, including the ABI sandbox hint |
-| `IRQ_BIND`, `IPC_*`, `FB_*`, `INPUT_READ` | forwarded to the LKM; unsupported until the patch phase |
+| `IRQ_BIND`, `IPC_*`, `INPUT_READ` | forwarded to the LKM; unsupported until the patch phase |
+| `FB_INFO`, `FB_MAP` | Linux `/dev/fb0` first, then a DRM/KMS dumb buffer on `/dev/dri/card0` |
 
-InterfaceKit stays opt-in. Without a framebuffer backend, it logs that the
-desktop is disabled and serial services continue.
+The ABI v3 shell owns the visible console. Output from background services
+(SecureKernel, `usb64`, InterfaceKit diagnostics) is written to
+`/@/data/system/nullk.log` so the `nk)` prompt is not trampled. The LKM's LOG
+ioctl is logged at `pr_debug()` as well.
+
+InterfaceKit stays opt-in. With a virtio-GPU or real DRM card, `FB_INFO` and
+`FB_MAP` return a real scanout buffer so the desktop and future UI work under
+Linux. Headless virtio-GPU still gets a 1024x768 dumb-buffer fallback. Without
+any framebuffer device, it logs that the desktop is disabled and serial
+services continue.
 
 ## Linux boot wiring
 

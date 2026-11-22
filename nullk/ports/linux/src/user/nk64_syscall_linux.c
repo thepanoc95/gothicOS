@@ -8,12 +8,17 @@
  */
 #define _GNU_SOURCE
 #include <dirent.h>
+#include <drm/drm.h>
+#include <drm/drm_fourcc.h>
+#include <drm/drm_mode.h>
 #include <elf.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <linux/fb.h>
 #include <pthread.h>
 #include <sched.h>
 #include <signal.h>
+#include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -31,6 +36,7 @@
 #define NK64_LINUX_MAX_FILES 256u
 #define NK64_LINUX_MAX_EXEC  0x100000u
 #define NK64_LINUX_PAGE_SIZE 4096u
+#define NK64_DRM_CONNECTED   1u /* DRM_MODE_CONNECTED, omitted by some UAPI headers */
 
 typedef struct {
     int fd;
@@ -41,8 +47,10 @@ typedef struct {
     pthread_t tid;
     void (*entry)(void);
     uint64_t arg;
+    char name[24];
     int used;
     int running;
+    int console;
 } nk64_task_slot_t;
 
 static pthread_mutex_t g_nk_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -50,7 +58,14 @@ static nk64_file_slot_t g_files[NK64_LINUX_MAX_FILES];
 static nk64_task_slot_t g_tasks[NK64_MAX_TASKS];
 static pthread_t g_main_thread;
 static int g_ctl_fd = -1;
+static int g_log_fd = -1;
 static int g_initialized;
+
+static int g_fb_fd = -1;
+static void *g_fb_addr;
+static size_t g_fb_len;
+static nk64_fbinfo_t g_fb_info;
+static int g_fb_ready;
 
 static uint64_t nk64_linux_ticks(void)
 {
@@ -139,6 +154,87 @@ uint32_t nk64_linux_map_path(const char *path, char *out, size_t cap)
     }
     out[n] = '\0';
     return NK_STATUS_OK;
+}
+
+/* Only the shell and the init thread may write to the visible console. USB,
+ * SecureKernel and UI diagnostics go to /@/data/system/nullk.log instead so
+ * the nk) prompt is never trampled by background service chatter. */
+static int nk64_owns_console(void)
+{
+    pthread_t self = pthread_self();
+    uint32_t i;
+    int owned = 0;
+
+    pthread_mutex_lock(&g_nk_lock);
+    if (pthread_equal(self, g_main_thread) != 0) {
+        owned = 1;
+    }
+    for (i = 0u; i < NK64_MAX_TASKS; i++) {
+        if (g_tasks[i].used && g_tasks[i].console &&
+            pthread_equal(self, g_tasks[i].tid) != 0) {
+            owned = 1;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&g_nk_lock);
+    return owned;
+}
+
+static int nk64_log_fd(void)
+{
+    char path[NK_VFS_PATH_MAX];
+    int fd;
+
+    if (g_log_fd >= 0) {
+        return g_log_fd;
+    }
+    if (nk64_linux_map_path("@/data/system/nullk.log", path,
+                            sizeof(path)) == NK_STATUS_OK) {
+        fd = open(path, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0644);
+    } else {
+        fd = -1;
+    }
+    if (fd < 0) {
+        fd = open("/dev/null", O_WRONLY | O_CLOEXEC);
+    }
+    g_log_fd = fd;
+    return g_log_fd;
+}
+
+static ssize_t nk64_emit(int fd, const void *buf, size_t len)
+{
+    int out = fd;
+
+    if ((fd == STDOUT_FILENO || fd == STDERR_FILENO) &&
+        !nk64_owns_console()) {
+        out = nk64_log_fd();
+    }
+    if (out < 0) {
+        return -1;
+    }
+    return write(out, buf, len);
+}
+
+static void nk64_fb_debug(const char *fmt, ...)
+{
+    char buf[256];
+    va_list ap;
+    ssize_t ignored;
+    int len;
+    size_t cap;
+
+    va_start(ap, fmt);
+    len = vsnprintf(buf, sizeof(buf), fmt, ap);
+    va_end(ap);
+    if (len <= 0) {
+        return;
+    }
+    cap = (size_t)len;
+    if (cap >= sizeof(buf)) {
+        cap = sizeof(buf) - 1u;
+    }
+    ignored = write(nk64_log_fd(), buf, cap);
+    (void)ignored;
 }
 
 static uint64_t nk64_control_call(uint64_t nr, uint64_t a0, uint64_t a1,
@@ -282,7 +378,6 @@ static uint64_t nk64_task_spawn(const char *name, void (*entry)(void),
     pthread_attr_t attr;
     uint32_t i;
 
-    (void)name;
     (void)flags;
     if (entry == NULL) {
         return 0u;
@@ -294,6 +389,12 @@ static uint64_t nk64_task_spawn(const char *name, void (*entry)(void),
             memset(slot, 0, sizeof(*slot));
             slot->entry = entry;
             slot->arg = arg;
+            if (name != NULL) {
+                strncpy(slot->name, name, sizeof(slot->name) - 1u);
+            }
+            /* The shell owns the visible console; every other service logs to
+             * the initramfs log file so the prompt stays usable. */
+            slot->console = (name != NULL && strcmp(name, "nksh") == 0);
             slot->used = 1;
             slot->running = 1;
             break;
@@ -472,6 +573,290 @@ static void nk64_linux_getinfo_local(nk64_info_t *out)
     }
 }
 
+static uint32_t nk64_linux_fbdev_probe(void)
+{
+    struct fb_var_screeninfo var;
+    struct fb_fix_screeninfo fix;
+    size_t len;
+    void *addr;
+    int fd;
+
+    fd = open("/dev/fb0", O_RDWR | O_CLOEXEC);
+    if (fd < 0) {
+        return NK_STATUS_NOT_FOUND;
+    }
+    if (ioctl(fd, FBIOGET_VSCREENINFO, &var) != 0 ||
+        ioctl(fd, FBIOGET_FSCREENINFO, &fix) != 0) {
+        close(fd);
+        return NK_STATUS_NOT_FOUND;
+    }
+    if ((var.bits_per_pixel != 24u && var.bits_per_pixel != 32u) ||
+        var.xres == 0u || var.yres == 0u || fix.line_length == 0u) {
+        close(fd);
+        return NK_STATUS_UNSUPPORTED;
+    }
+    len = (size_t)fix.line_length * (size_t)var.yres;
+    if (fix.smem_len != 0u && len > (size_t)fix.smem_len) {
+        len = (size_t)fix.smem_len;
+    }
+    addr = mmap(NULL, len, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if (addr == MAP_FAILED) {
+        close(fd);
+        return NK_STATUS_INTERNAL_ERROR;
+    }
+
+    memset(&g_fb_info, 0, sizeof(g_fb_info));
+    g_fb_info.phys = fix.smem_start;
+    g_fb_info.width = var.xres;
+    g_fb_info.height = var.yres;
+    g_fb_info.pitch = fix.line_length;
+    g_fb_info.bpp = (uint16_t)var.bits_per_pixel;
+    g_fb_info.red_size = (uint8_t)var.red.length;
+    g_fb_info.red_shift = (uint8_t)var.red.offset;
+    g_fb_info.green_size = (uint8_t)var.green.length;
+    g_fb_info.green_shift = (uint8_t)var.green.offset;
+    g_fb_info.blue_size = (uint8_t)var.blue.length;
+    g_fb_info.blue_shift = (uint8_t)var.blue.offset;
+    g_fb_info.present = 1u;
+
+    g_fb_fd = fd;
+    g_fb_addr = addr;
+    g_fb_len = len;
+    g_fb_ready = 1;
+    return NK_STATUS_OK;
+}
+
+static uint32_t nk64_linux_drm_probe(void)
+{
+    struct drm_mode_card_res res;
+    struct drm_mode_get_connector conn;
+    struct drm_mode_get_encoder enc;
+    struct drm_mode_modeinfo mode;
+    struct drm_mode_modeinfo probe_mode;
+    struct drm_mode_create_dumb dumb;
+    struct drm_mode_fb_cmd2 fb;
+    struct drm_mode_map_dumb map;
+    struct drm_mode_crtc crtc;
+    uint32_t *fbs = NULL;
+    uint32_t *crtcs = NULL;
+    uint32_t *connectors = NULL;
+    uint32_t *encoders = NULL;
+    struct drm_mode_modeinfo *modes = NULL;
+    uint32_t fallback_conn = 0u;
+    uint32_t chosen_crtc = 0u;
+    uint32_t chosen_conn = 0u;
+    uint32_t rc = NK_STATUS_NOT_FOUND;
+
+    memset(&mode, 0, sizeof(mode));
+    uint32_t i;
+    size_t len;
+    void *addr;
+    int fd;
+
+    fd = open("/dev/dri/card0", O_RDWR | O_CLOEXEC);
+    if (fd < 0) {
+        nk64_fb_debug("[fb] /dev/dri/card0 unavailable: %s\n",
+                strerror(errno));
+        return NK_STATUS_NOT_FOUND;
+    }
+    (void)ioctl(fd, DRM_IOCTL_SET_MASTER);
+
+    memset(&res, 0, sizeof(res));
+    if (ioctl(fd, DRM_IOCTL_MODE_GETRESOURCES, &res) != 0) {
+        nk64_fb_debug("[fb] DRM GETRESOURCES failed: %s\n",
+                strerror(errno));
+        goto fail;
+    }
+    if (res.count_crtcs == 0u || res.count_connectors == 0u) {
+        nk64_fb_debug("[fb] DRM has no CRTC/connector\n");
+        goto fail;
+    }
+    fbs = calloc(res.count_fbs ? res.count_fbs : 1u, sizeof(*fbs));
+    crtcs = calloc(res.count_crtcs, sizeof(*crtcs));
+    connectors = calloc(res.count_connectors, sizeof(*connectors));
+    encoders = calloc(res.count_encoders ? res.count_encoders : 1u,
+                      sizeof(*encoders));
+    if (fbs == NULL || crtcs == NULL || connectors == NULL ||
+        encoders == NULL) {
+        rc = NK_STATUS_OUT_OF_MEMORY;
+        goto fail;
+    }
+    res.fb_id_ptr = (uint64_t)(uintptr_t)fbs;
+    res.crtc_id_ptr = (uint64_t)(uintptr_t)crtcs;
+    res.connector_id_ptr = (uint64_t)(uintptr_t)connectors;
+    res.encoder_id_ptr = (uint64_t)(uintptr_t)encoders;
+    if (ioctl(fd, DRM_IOCTL_MODE_GETRESOURCES, &res) != 0) {
+        nk64_fb_debug("[fb] DRM GETRESOURCES (ids) failed: %s\n",
+                strerror(errno));
+        goto fail;
+    }
+
+    for (i = 0u; i < res.count_connectors; i++) {
+        memset(&conn, 0, sizeof(conn));
+        conn.connector_id = connectors[i];
+        conn.count_modes = 1u;
+        conn.modes_ptr = (uint64_t)(uintptr_t)&probe_mode;
+        if (ioctl(fd, DRM_IOCTL_MODE_GETCONNECTOR, &conn) != 0) {
+            nk64_fb_debug("[fb] DRM GETCONNECTOR %u failed: %s\n", i,
+                    strerror(errno));
+            continue;
+        }
+        nk64_fb_debug("[fb] connector status=%u modes=%u encoders=%u\n",
+                      conn.connection, conn.count_modes, conn.count_encoders);
+        if (fallback_conn == 0u) {
+            fallback_conn = connectors[i];
+        }
+        if (conn.connection != NK64_DRM_CONNECTED || conn.count_modes == 0u ||
+            conn.count_encoders == 0u) {
+            continue;
+        }
+        free(modes);
+        free(encoders);
+        modes = calloc(conn.count_modes, sizeof(*modes));
+        encoders = calloc(conn.count_encoders, sizeof(*encoders));
+        if (modes == NULL || encoders == NULL) {
+            rc = NK_STATUS_OUT_OF_MEMORY;
+            goto fail;
+        }
+        conn.modes_ptr = (uint64_t)(uintptr_t)modes;
+        conn.encoders_ptr = (uint64_t)(uintptr_t)encoders;
+        if (ioctl(fd, DRM_IOCTL_MODE_GETCONNECTOR, &conn) != 0) {
+            continue;
+        }
+        chosen_conn = connectors[i];
+        mode = modes[0];
+        if (conn.encoder_id != 0u) {
+            memset(&enc, 0, sizeof(enc));
+            enc.encoder_id = conn.encoder_id;
+            if (ioctl(fd, DRM_IOCTL_MODE_GETENCODER, &enc) == 0) {
+                chosen_crtc = enc.crtc_id;
+            }
+        }
+        break;
+    }
+    if (chosen_conn == 0u) {
+        /* Headless virtio-GPU reports an unknown connector with no modes. A
+         * fixed 1024x768 scanout still gives InterfaceKit a usable surface. */
+        if (fallback_conn == 0u) {
+            nk64_fb_debug("[fb] no DRM connector available\n");
+            goto fail;
+        }
+        chosen_conn = fallback_conn;
+        memset(&mode, 0, sizeof(mode));
+        strncpy(mode.name, "1024x768", sizeof(mode.name) - 1u);
+        mode.clock = 65000u;
+        mode.hdisplay = 1024u;
+        mode.hsync_start = 1048u;
+        mode.hsync_end = 1184u;
+        mode.htotal = 1344u;
+        mode.vdisplay = 768u;
+        mode.vsync_start = 771u;
+        mode.vsync_end = 777u;
+        mode.vtotal = 806u;
+        mode.flags = DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC;
+    }
+    if (chosen_crtc == 0u) {
+        chosen_crtc = crtcs[0];
+    }
+
+    memset(&dumb, 0, sizeof(dumb));
+    dumb.width = mode.hdisplay;
+    dumb.height = mode.vdisplay;
+    dumb.bpp = 32u;
+    if (ioctl(fd, DRM_IOCTL_MODE_CREATE_DUMB, &dumb) != 0) {
+        nk64_fb_debug("[fb] DRM CREATE_DUMB failed: %s\n", strerror(errno));
+        goto fail;
+    }
+    memset(&fb, 0, sizeof(fb));
+    fb.width = dumb.width;
+    fb.height = dumb.height;
+    fb.pixel_format = DRM_FORMAT_XRGB8888;
+    fb.handles[0] = dumb.handle;
+    fb.pitches[0] = dumb.pitch;
+    if (ioctl(fd, DRM_IOCTL_MODE_ADDFB2, &fb) != 0) {
+        nk64_fb_debug("[fb] DRM ADDFB2 failed: %s\n", strerror(errno));
+        goto fail;
+    }
+    memset(&crtc, 0, sizeof(crtc));
+    crtc.crtc_id = chosen_crtc;
+    crtc.fb_id = fb.fb_id;
+    crtc.set_connectors_ptr = (uint64_t)(uintptr_t)&chosen_conn;
+    crtc.count_connectors = 1u;
+    crtc.mode = mode;
+    crtc.mode_valid = 1u;
+    if (ioctl(fd, DRM_IOCTL_MODE_SETCRTC, &crtc) != 0) {
+        nk64_fb_debug("[fb] DRM SETCRTC failed: %s\n", strerror(errno));
+        goto fail;
+    }
+
+    memset(&map, 0, sizeof(map));
+    map.handle = dumb.handle;
+    if (ioctl(fd, DRM_IOCTL_MODE_MAP_DUMB, &map) != 0) {
+        nk64_fb_debug("[fb] DRM MAP_DUMB failed: %s\n", strerror(errno));
+        goto fail;
+    }
+    len = (size_t)dumb.size;
+    if (len == 0u) {
+        len = (size_t)dumb.pitch * (size_t)dumb.height;
+    }
+    addr = mmap(NULL, len, PROT_READ | PROT_WRITE, MAP_SHARED, fd,
+                (off_t)map.offset);
+    if (addr == MAP_FAILED) {
+        goto fail;
+    }
+
+    memset(&g_fb_info, 0, sizeof(g_fb_info));
+    g_fb_info.width = dumb.width;
+    g_fb_info.height = dumb.height;
+    g_fb_info.pitch = dumb.pitch;
+    g_fb_info.bpp = 32u;
+    g_fb_info.red_size = 8u;
+    g_fb_info.red_shift = 16u;
+    g_fb_info.green_size = 8u;
+    g_fb_info.green_shift = 8u;
+    g_fb_info.blue_size = 8u;
+    g_fb_info.blue_shift = 0u;
+    g_fb_info.present = 1u;
+
+    free(modes);
+    free(encoders);
+    free(fbs);
+    free(crtcs);
+    free(connectors);
+    g_fb_fd = fd;
+    g_fb_addr = addr;
+    g_fb_len = len;
+    g_fb_ready = 1;
+    return NK_STATUS_OK;
+
+fail:
+    free(modes);
+    free(encoders);
+    free(fbs);
+    free(crtcs);
+    free(connectors);
+    close(fd);
+    return rc;
+}
+
+static uint32_t nk64_linux_fb_probe(void)
+{
+    uint32_t rc;
+
+    nk64_fb_debug("[fb] probe entered\n");
+    if (g_fb_ready != 0) {
+        return NK_STATUS_OK;
+    }
+    rc = nk64_linux_fbdev_probe();
+    nk64_fb_debug("[fb] fbdev rc=%u\n", rc);
+    if (rc == NK_STATUS_OK) {
+        return rc;
+    }
+    rc = nk64_linux_drm_probe();
+    nk64_fb_debug("[fb] drm rc=%u\n", rc);
+    return rc;
+}
+
 uint64_t nk64_syscall(uint64_t n, uint64_t a0, uint64_t a1, uint64_t a2,
                       uint64_t a3, uint64_t a4, uint64_t a5)
 {
@@ -491,7 +876,8 @@ uint64_t nk64_syscall(uint64_t n, uint64_t a0, uint64_t a1, uint64_t a2,
         if (fd < 0) {
             return (uint64_t)NK_STATUS_INVALID_ARGUMENT;
         }
-        return (uint64_t)write(fd, (const void *)(uintptr_t)a1, (size_t)a2);
+        return (uint64_t)nk64_emit(fd, (const void *)(uintptr_t)a1,
+                                   (size_t)a2);
     }
     case NK64_SC_OPEN: {
         char host[NK_VFS_PATH_MAX];
@@ -597,14 +983,10 @@ uint64_t nk64_syscall(uint64_t n, uint64_t a0, uint64_t a1, uint64_t a2,
         return (addr == MAP_FAILED) ? 0u : (uint64_t)(uintptr_t)addr;
     }
     case NK64_SC_LOG: {
-        uint64_t rc = nk64_control_call(NK64_SC_LOG, (uint32_t)a0, a1, a2, 0u);
-
-        if (rc != (uint64_t)NK_STATUS_OK) {
-            ssize_t ignored = write(STDERR_FILENO,
+        ssize_t ignored = nk64_emit(STDERR_FILENO,
                                     (const void *)(uintptr_t)a1, (size_t)a2);
 
-            (void)ignored;
-        }
+        (void)ignored;
         return (uint64_t)NK_STATUS_OK;
     }
     case NK64_SC_REBOOT:
@@ -618,11 +1000,29 @@ uint64_t nk64_syscall(uint64_t n, uint64_t a0, uint64_t a1, uint64_t a2,
     }
     case NK64_SC_TASK_STATE:
         return nk64_linux_task_state((uint32_t)a0);
+    case NK64_SC_FB_INFO: {
+        uint32_t rc = nk64_linux_fb_probe();
+
+        if (rc != NK_STATUS_OK) {
+            return (uint64_t)rc;
+        }
+        if ((void *)(uintptr_t)a0 == NULL) {
+            return (uint64_t)NK_STATUS_INVALID_ARGUMENT;
+        }
+        memcpy((void *)(uintptr_t)a0, &g_fb_info, sizeof(g_fb_info));
+        return (uint64_t)NK_STATUS_OK;
+    }
+    case NK64_SC_FB_MAP: {
+        uint32_t rc = nk64_linux_fb_probe();
+
+        if (rc != NK_STATUS_OK || g_fb_addr == NULL) {
+            return 0u;
+        }
+        return (uint64_t)(uintptr_t)g_fb_addr;
+    }
     case NK64_SC_USB_READ:
     case NK64_SC_USB_WRITE:
     case NK64_SC_USB_REGISTER:
-    case NK64_SC_FB_INFO:
-    case NK64_SC_FB_MAP:
     case NK64_SC_INPUT_READ:
     case NK64_SC_IRQ_BIND:
     case NK64_SC_IPC_OPEN:

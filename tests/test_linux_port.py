@@ -41,6 +41,13 @@ class NativeLinuxPortTests(unittest.TestCase):
         self.assertIn("nullk/ports/linux", recipe)
         self.assertIn("test", recipe)
 
+    def test_shell_console_and_framebuffer_backend(self):
+        shim = (PORT_ROOT / "src/user/nk64_syscall_linux.c").read_text()
+        self.assertIn("nullk.log", shim)
+        self.assertIn("nk64_owns_console", shim)
+        self.assertIn("FBIOGET_VSCREENINFO", shim)
+        self.assertIn("DRM_IOCTL_MODE_SETCRTC", shim)
+
 
 if __name__ == "__main__":
     unittest.main()

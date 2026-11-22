@@ -19,7 +19,8 @@ KDIR ?= /lib/modules/$(shell uname -r)/build
 INCLUDES := -Iinclude \
             -I$(NULLK_ROOT)/include \
             -I$(NULLK_ROOT)/apps/include \
-            -I$(NULLK_ROOT)/securekernel/include
+            -I$(NULLK_ROOT)/securekernel/include \
+            -I/usr/include/drm
 
 COMMON_DEFS := -D_start=nk64_amd64_init_start \
                -DNULLK_LIBNK64_EXTERNAL_SYSCALL
