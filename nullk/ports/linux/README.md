@@ -79,9 +79,19 @@ ioctl is logged at `pr_debug()` as well.
 
 InterfaceKit stays opt-in. With a virtio-GPU or real DRM card, `FB_INFO` and
 `FB_MAP` return a real scanout buffer so the desktop and future UI work under
-Linux. Headless virtio-GPU still gets a 1024x768 dumb-buffer fallback. Without
-any framebuffer device, it logs that the desktop is disabled and serial
-services continue.
+Linux. Headless virtio-GPU still gets a 1024x768 dumb-buffer fallback, and the
+shim periodically issues `DRM_IOCTL_MODE_DIRTYFB` so the host actually repaints
+that buffer. Without any framebuffer device, it logs that the desktop is
+disabled and serial services continue.
+
+For a visible QEMU desktop, make the virtio GPU the primary display:
+
+```sh
+qemu-system-x86_64 ... -vga none -device virtio-gpu-pci -vnc :99
+```
+
+Using `-vga virtio` leaves QEMU showing the legacy VGA text scanout instead of
+the DRM framebuffer.
 
 ## Linux boot wiring
 

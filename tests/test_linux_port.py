@@ -47,6 +47,7 @@ class NativeLinuxPortTests(unittest.TestCase):
         self.assertIn("nk64_owns_console", shim)
         self.assertIn("FBIOGET_VSCREENINFO", shim)
         self.assertIn("DRM_IOCTL_MODE_SETCRTC", shim)
+        self.assertIn("DRM_IOCTL_MODE_DIRTYFB", shim)
 
 
 if __name__ == "__main__":

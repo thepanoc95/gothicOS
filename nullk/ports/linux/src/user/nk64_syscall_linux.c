@@ -66,6 +66,9 @@ static void *g_fb_addr;
 static size_t g_fb_len;
 static nk64_fbinfo_t g_fb_info;
 static int g_fb_ready;
+static uint32_t g_fb_drm_fb_id;
+static pthread_t g_fb_refresh_thread;
+static int g_fb_refresh_started;
 
 static uint64_t nk64_linux_ticks(void)
 {
@@ -626,6 +629,44 @@ static uint32_t nk64_linux_fbdev_probe(void)
     return NK_STATUS_OK;
 }
 
+/* virtio-gpu does not repaint the host scanout from plain CPU writes to a
+ * mapped dumb buffer. Dirty the FB periodically so InterfaceKit's pixels
+ * become visible without changing the shared userspace compositor. */
+static void *nk64_fb_refresh_main(void *arg)
+{
+    struct drm_mode_fb_dirty_cmd cmd;
+    struct timespec delay;
+
+    (void)arg;
+    memset(&cmd, 0, sizeof(cmd));
+    cmd.fb_id = g_fb_drm_fb_id;
+    delay.tv_sec = 0;
+    delay.tv_nsec = 16000000L;
+    for (;;) {
+        (void)nanosleep(&delay, NULL);
+        (void)ioctl(g_fb_fd, DRM_IOCTL_MODE_DIRTYFB, &cmd);
+    }
+    return NULL;
+}
+
+static void nk64_fb_refresh_start(void)
+{
+    pthread_attr_t attr;
+
+    if (g_fb_refresh_started != 0) {
+        return;
+    }
+    if (pthread_attr_init(&attr) != 0) {
+        return;
+    }
+    (void)pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+    if (pthread_create(&g_fb_refresh_thread, &attr, nk64_fb_refresh_main,
+                       NULL) == 0) {
+        g_fb_refresh_started = 1;
+    }
+    pthread_attr_destroy(&attr);
+}
+
 static uint32_t nk64_linux_drm_probe(void)
 {
     struct drm_mode_card_res res;
@@ -804,7 +845,6 @@ static uint32_t nk64_linux_drm_probe(void)
     if (addr == MAP_FAILED) {
         goto fail;
     }
-
     memset(&g_fb_info, 0, sizeof(g_fb_info));
     g_fb_info.width = dumb.width;
     g_fb_info.height = dumb.height;
@@ -826,6 +866,8 @@ static uint32_t nk64_linux_drm_probe(void)
     g_fb_fd = fd;
     g_fb_addr = addr;
     g_fb_len = len;
+    g_fb_drm_fb_id = fb.fb_id;
+    nk64_fb_refresh_start();
     g_fb_ready = 1;
     return NK_STATUS_OK;
 

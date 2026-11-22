@@ -19,8 +19,9 @@ directly.
 - a generated gzip-cpio initramfs with a static C PID 1 that mounts the basic
   pseudo-filesystems, loads `nkabi3.ko` and boots the native userspace;
 - a Linux framebuffer backend: `/dev/fb0` first, then a DRM/KMS dumb buffer on
-  `/dev/dri/card0` (with a 1024x768 fallback for headless virtio-GPU), so
-  InterfaceKit can use the VGA/virtio-GPU adapter;
+  `/dev/dri/card0` (with a 1024x768 fallback for headless virtio-GPU and a
+  periodic `DIRTYFB` flush so the host repaints it), so InterfaceKit can use the
+  VGA/virtio-GPU adapter;
 - console routing that gives the `nk)` shell the serial console while sending
   background service chatter to `/@/data/system/nullk.log`.
 
