@@ -1,5 +1,6 @@
 #!/bin/sh
-# gothicOS Linux init: replace PID 1, start the native ABI v3 userspace.
+# Reference shell equivalent of src/user/initramfs_init.c. The generated
+# initramfs uses the static C binary as /init and /lib/init; it needs no shell.
 set -u
 
 mount -t proc none /proc 2>/dev/null || true

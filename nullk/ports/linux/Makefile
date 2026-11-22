@@ -55,6 +55,9 @@ NULLK_CXX_SRC := securekernel/OSSecureAPI.cpp \
 NULLK_CXX_OBJ := $(patsubst $(NULLK_ROOT)/%.cpp,$(OBJ)/%.o,$(addprefix $(NULLK_ROOT)/,$(NULLK_CXX_SRC)))
 
 USER_ELF := $(BUILD)/nullk-linux.elf
+INIT_SRC := src/user/initramfs_init.c
+INIT_OBJ := $(OBJ)/initramfs/initramfs_init.o
+INIT_BIN := $(BUILD)/initramfs-init
 TEST_SRC := tests/test_abi_layout.c
 TEST_OBJ := $(OBJ)/tests/test_abi_layout.o
 TEST_BIN := $(BUILD)/test_linux_port
@@ -63,7 +66,7 @@ TEST_BIN := $(BUILD)/test_linux_port
 
 all: user test
 
-user: $(USER_ELF)
+user: $(USER_ELF) $(INIT_BIN)
 
 $(OBJ)/port/%.o: src/%.c
 	@mkdir -p $(dir $@)
@@ -80,6 +83,14 @@ $(OBJ)/%.o: $(NULLK_ROOT)/%.cpp
 $(USER_ELF): $(PORT_C_OBJ) $(NULLK_C_OBJ) $(NULLK_CXX_OBJ)
 	@mkdir -p $(dir $@)
 	$(CXX) $(LINK_FLAGS) -o $@ $^
+
+$(INIT_OBJ): $(INIT_SRC)
+	@mkdir -p $(dir $@)
+	$(CC) $(USER_CFLAGS) -c $< -o $@
+
+$(INIT_BIN): $(INIT_OBJ)
+	@mkdir -p $(dir $@)
+	$(CC) -static -no-pie -o $@ $^
 
 $(TEST_OBJ): $(TEST_SRC)
 	@mkdir -p $(dir $@)
@@ -100,7 +111,7 @@ module:
 
 initramfs: user
 	python3 scripts/mkinitramfs.py --out $(BUILD)/initrd-6.6.162-nk.img \
-		--elf $(USER_ELF) --module $(BUILD)/nkabi3.ko
+		--init $(INIT_BIN) --elf $(USER_ELF) --module $(BUILD)/nkabi3.ko
 
 module-clean:
 	-$(MAKE) -C $(KDIR) M=$(PORT_ROOT) clean

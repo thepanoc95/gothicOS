@@ -19,6 +19,7 @@ class NativeLinuxPortTests(unittest.TestCase):
             "include/nullk_linux/user_shim.h",
             "src/lkm/main.c",
             "src/user/init_pid1.c",
+            "src/user/initramfs_init.c",
             "src/user/nk64_syscall_linux.c",
             "configs/initramfs/init",
             "scripts/mkinitramfs.py",

@@ -16,7 +16,8 @@ directly.
 - an `@/` VFS adapter rooted at `/@` inside initramfs;
 - an in-process ELF loader for `EXEC`/`EXEC_MEM`, preserving the AMD64
   check-then-exec-bytes model after SecureKernel verification;
-- a generated gzip-cpio initramfs that boots the native userspace.
+- a generated gzip-cpio initramfs with a static C PID 1 that mounts the basic
+  pseudo-filesystems, loads `nkabi3.ko` and boots the native userspace.
 
 The first phase is out-of-tree. Optional Linux 6.6.162 LTS patches belong in
 `nullk/ports/linux/patches/optional/` and hook the exported

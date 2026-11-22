@@ -17,9 +17,10 @@ Phase 1 is implemented and out-of-tree:
 - `src/user/init_pid1.c` is a PID 1 replacement. It starts the same `init64`
   service chain (SecureKernel, `usb64`, `nksh`) using Linux threads that share
   one address space, matching the AMD64 task model.
-- `configs/initramfs/init` and `scripts/mkinitramfs.py` build a Linux initramfs
-  that mounts `/proc`, `/sys` and `/dev`, loads `nkabi3.ko`, maps `@/` to `/@`
-  and execs the native init.
+- `src/user/initramfs_init.c` and `scripts/mkinitramfs.py` build a static C
+  `/init` (also installed as `/lib/init`) that mounts `/proc`, `/sys` and
+  `/dev`, loads `nkabi3.ko`, stages `@/` at `/@` and execs the native init; no
+  shell or `insmod` binary is needed inside the archive.
 - `patches/optional/` is reserved for the deeper Linux patch set. The module
   exports `nk64_parasite_mode()` as the stable hook for scheduler/VFS/exec
   patches; no kernel source is downloaded or modified by this directory.

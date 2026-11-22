@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """Build a small gothicOS Linux initramfs without requiring cpio(1).
 
-The archive is a gzip-compressed "newc" cpio image containing /init, the
-native ABI v3 userspace ELF, the optional /dev/nkabi3 module and the @/ payload
-expected by init64. Linux 6.6 accepts this format directly.
+The archive is a gzip-compressed "newc" cpio image containing a static C /init,
+the native ABI v3 userspace ELF, the optional /dev/nkabi3 module and the @/
+payload expected by init64. /lib/init is an alias for existing Limine entries
+that pass init=/lib/init. Linux 6.6 accepts this format directly.
 """
 from __future__ import annotations
 
 import argparse
 import gzip
-import os
 from pathlib import Path
 
 PORT_ROOT = Path(__file__).resolve().parents[1]
@@ -48,7 +48,8 @@ def pad(data: bytes) -> bytes:
 
 def add_file(out: bytearray, arcname: str, path: Path, ino: int) -> int:
     data = path.read_bytes()
-    mode = 0o100755 if path.name == "init" else 0o100644
+    mode = 0o100755 if arcname in ("init", "lib/init",
+                                    "lib/nullk/nullk-linux.elf") else 0o100644
     out += header(arcname.lstrip("/"), mode, len(data),
                   int(path.stat().st_mtime), ino)
     out += pad(data)
@@ -60,7 +61,10 @@ def add_dir(out: bytearray, arcname: str, ino: int) -> int:
     return ino + 1
 
 
-def build(out_path: Path, elf: Path, module: Path | None) -> None:
+def build(out_path: Path, init: Path, elf: Path,
+          module: Path | None) -> None:
+    if not init.is_file():
+        raise SystemExit(f"missing static init: {init}")
     if not elf.is_file():
         raise SystemExit(f"missing userspace ELF: {elf}")
 
@@ -71,7 +75,8 @@ def build(out_path: Path, elf: Path, module: Path | None) -> None:
                       "@/data/user/bin", "dev", "proc", "sys"]:
         ino = add_dir(archive, directory, ino)
 
-    ino = add_file(archive, "init", CONFIG_ROOT / "init", ino)
+    ino = add_file(archive, "init", init, ino)
+    ino = add_file(archive, "lib/init", init, ino)
     ino = add_file(archive, "lib/nullk/nullk-linux.elf", elf, ino)
 
     if module is not None and module.is_file():
@@ -104,11 +109,13 @@ def build(out_path: Path, elf: Path, module: Path | None) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--out", required=True, type=Path)
+    parser.add_argument("--init", type=Path)
     parser.add_argument("--elf", required=True, type=Path)
     parser.add_argument("--module", type=Path)
     args = parser.parse_args()
+    init = args.init or args.elf.parent / "initramfs-init"
     module = args.module if args.module and args.module.is_file() else None
-    build(args.out, args.elf, module)
+    build(args.out, init, args.elf, module)
 
 
 if __name__ == "__main__":
