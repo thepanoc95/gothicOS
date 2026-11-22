@@ -12,6 +12,10 @@
 
 /* ---- syscall primitive -------------------------------------------------- */
 
+/* The freestanding AMD64 port uses the `syscall` instruction directly. Other
+ * hosts (currently the Linux ABI v3 port) provide their own primitive and set
+ * NULLK_LIBNK64_EXTERNAL_SYSCALL; all wrappers below stay identical. */
+#ifndef NULLK_LIBNK64_EXTERNAL_SYSCALL
 uint64_t nk64_syscall(uint64_t n, uint64_t a0, uint64_t a1, uint64_t a2,
                       uint64_t a3, uint64_t a4, uint64_t a5)
 {
@@ -30,6 +34,7 @@ uint64_t nk64_syscall(uint64_t n, uint64_t a0, uint64_t a1, uint64_t a2,
                      : "rcx", "r11", "memory");
     return rax;
 }
+#endif
 
 /* ---- ABI v3 wrappers --------------------------------------------------- */
 
@@ -251,8 +256,10 @@ int nk_memcmp(const void *a, const void *b, size_t n)
 /*
  * clang can lower struct copies in the C++ security layer to libc calls even
  * with -fno-builtin. These tiny shims keep init.elf fully freestanding; the
- * kernel image never needs them.
+ * kernel image never needs them. Hosted ports must use the real libc, so the
+ * same external-backend switch suppresses them there.
  */
+#ifndef NULLK_LIBNK64_EXTERNAL_SYSCALL
 void *memcpy(void *dst, const void *src, size_t n)
 {
     return nk_memcpy(dst, src, n);
@@ -284,6 +291,7 @@ void *memmove(void *dst, const void *src, size_t n)
     }
     return nk_memcpy(dst, src, n);
 }
+#endif /* !NULLK_LIBNK64_EXTERNAL_SYSCALL */
 
 static char *nk_utoa_base(uint64_t value, char *buf, uint32_t cap,
                           uint32_t base)

@@ -150,10 +150,10 @@ status, message = kernel.abi.invoke(13, "native.echo.out", -1)
 echo.stop()
 ```
 
-The same constructor works with `gothicos_linux_port.kernel_from_device(...)`'s
-`abi_invoke` method; no Linux-port code changes are needed. Only one transport
-can be active per process because the component library stores a single global
-function pointer.
+The old `gothicos_linux_port` transport was removed with the Cython Linux
+port. The current Linux host path is the native ABI v3 port in
+[`nullk/ports/linux`](../nullk/ports/linux/README.md); it exposes `libnk64`
+directly rather than the v1.1.1 `abi_invoke` Python callable.
 
 ### `NativeComponent` API
 

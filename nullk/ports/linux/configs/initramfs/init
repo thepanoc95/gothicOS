@@ -1,0 +1,20 @@
+#!/bin/sh
+# gothicOS Linux init: replace PID 1, start the native ABI v3 userspace.
+set -u
+
+mount -t proc none /proc 2>/dev/null || true
+mount -t sysfs none /sys 2>/dev/null || true
+mount -t devtmpfs none /dev 2>/dev/null || true
+
+mkdir -p /@/data/system /@/data/user/bin /dev /proc /sys
+
+cp /lib/nullk/payload/limine.cfg /@/data/system/limine.cfg 2>/dev/null || true
+cp /lib/nullk/payload/null_kernel.elf /@/data/system/null_kernel.elf 2>/dev/null || true
+
+if [ -f /lib/nullk/nkabi3.ko ] && command -v insmod >/dev/null 2>&1; then
+    insmod /lib/nullk/nkabi3.ko || \
+        echo '[init64] nkabi3.ko load failed; continuing in userspace-only mode'
+fi
+
+echo '[init64] gothicOS Linux userspace init starting'
+exec /lib/nullk/nullk-linux.elf

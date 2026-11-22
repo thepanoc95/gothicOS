@@ -1,0 +1,4 @@
+obj-m := nkabi3.o
+nkabi3-objs := src/lkm/main.o
+
+ccflags-y := -I$(src)/include

@@ -16,7 +16,8 @@ All layers speak the unchanged stable ABI in
 | KAL (C++ / Rust) | [`kernel/kal/cpp`](../kernel/kal/cpp), [`kernel/kal/rust`](../kernel/kal/rust) | Typed, safe interfaces over `nk_invoke`. |
 | Drivers (C++) | [`kernel/drivers/cpp`](../kernel/drivers/cpp) | C++ drivers registered through ABI trampolines (`console`, `timer`). |
 | Linux handoff | [`kernel/linux/handoff.c`](../kernel/linux/handoff.c) | Platform-neutral, opt-in state machine: bind CPUs, load init ELF, start init, start services. |
-| Linux module | [`ports/linux/nullkern_lkm.c`](../ports/linux/nullkern_lkm.c) | `/dev/nullkern` transport plus confined handoff ioctls; compiles the C core and handoff machine directly into the module. |
+| Linux module (retired v1.1.1) | — | The old `/dev/nullkern` Cython/C handoff port has been removed. |
+| Linux ABI v3 port | [`nullk/ports/linux`](../nullk/ports/linux/README.md) | Native `nkabi3.ko` control plane, `libnk64` Linux backend and PID 1 replacement for gothicOS/Linux 6.6.162. |
 | MicroPython chainloader | [`ports/micropython`](../ports/micropython) | `null.boot()` → init ELF → UmbraTS shell. |
 
 The C core stores everything in a caller-supplied buffer. The same object file can be
@@ -26,20 +27,16 @@ bytes, so no layer assumes a process heap inside the kernel.
 
 ## Safety model
 
-The Linux handoff is **bare-metal, confined and opt-in**. It never enumerates or
-terminates host processes.
+The current Linux port is **out-of-tree and ABI v3 native**. It does not run a
+second kernel in ring 0, does not enumerate or terminate host processes, and
+does not execute arbitrary ELFs in kernel mode.
 
-- The module parameter `handoff=1` or `HANDOFF_START` with `enabled=1` is required; the
-  default is a passive `/dev/nullkern` character device.
-- `HANDOFF_START` requires `CAP_SYS_ADMIN`.
-- CPU 0 is always reserved for Linux. `first_managed_cpu` defaults to 1, and every CPU
-  binding hook rejects 0 and out-of-range CPUs.
-- Only NullKern-owned kthreads are created. They are bound to CPUs 1..N-1 and stopped by
-  `HANDOFF_STOP` or module unload.
-- The init ELF is opened, magic-checked, size-limited and retained. Kernel-side execution
-  of arbitrary ELF images still requires a firmware/sandbox loader and is intentionally
-  not enabled here. The Rust and MicroPython paths can run the embedded Umbra payload
-  without a kernel ELF loader.
+- `/dev/nkabi3` is a misc device with mode `0600`; setting the parasite mode
+  requires `CAP_SYS_ADMIN`.
+- Kernel primitives are bounded: `GETINFO`, `LOG`, scheduling/ticks and a
+  2-LUN x 4 KiB USB RAM disk. VFS, tasks, exec and policy stay in userspace.
+- `nk64_parasite_mode()` is exported for later optional Linux patches; the
+  default `OBSERVE` mode leaves host scheduling and VFS behavior unchanged.
 - This is a lab feature: do not enable it on production hosts.
 
 ## MicroPython boot chain
@@ -120,15 +117,20 @@ only `.py`, `.pyx` and `.c` inputs; C++ and Cargo are driven by `kernel/Makefile
 `ports/micropython/build.json` is a normal source recipe that compiles the chainloader
 modules to `.mpy` and runs `build.py` to prepare the flash tree.
 
-Building the loadable Linux module still requires matching kernel headers:
+Building the native ABI v3 Linux userspace needs no kernel source:
 
 ```sh
-make -C ports/linux
-sudo insmod ports/linux/nullkern_lkm.ko handoff=1 first_managed_cpu=1
+make -C nullk/ports/linux
 ```
 
-The native sources are included directly by `nullkern_lkm.c`, so no extra objects need to
-be listed in the kbuild Makefile.
+Building the LKM requires matching 6.6.162 headers:
+
+```sh
+make -C nullk/ports/linux module KDIR=/path/to/linux-6.6.162
+sudo insmod /lib/modules/6.6.162-nk/extra/nkabi3.ko
+```
+
+See `nullk/ports/linux/README.md` for the initramfs build and ABI routing table.
 
 ## Current boundaries
 

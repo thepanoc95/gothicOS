@@ -12,6 +12,14 @@
                 "run": [ "make", "-C", "%PROJROOT/nullk", "BOARD=amd64", "test" ]
             },
             {
+                "name": "test-nullk-linux-port",
+                "run": [ "make", "-C", "%PROJROOT/nullk/ports/linux", "test" ]
+            },
+            {
+                "name": "build-nullk-linux-userspace",
+                "run": [ "make", "-C", "%PROJROOT/nullk/ports/linux", "user" ]
+            },
+            {
                 "name": "build-nullk-arm",
                 "run": [ "make", "-C", "%PROJROOT/nullk", "CROSS=arm-none-eabi-", "all" ]
             },

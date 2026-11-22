@@ -1,0 +1,16 @@
+{
+    "$schema": "../../../src/gothicos/OSBuild/schema/osbuild.json",
+    "@build": {
+        "name": "nullk-linux-port",
+        "steps": [
+            {
+                "name": "test-nullk-linux-port",
+                "run": [ "make", "-C", "%PROJROOT/nullk/ports/linux", "test" ]
+            },
+            {
+                "name": "build-nullk-linux-userspace",
+                "run": [ "make", "-C", "%PROJROOT/nullk/ports/linux", "user" ]
+            }
+        ]
+    }
+}

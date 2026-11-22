@@ -1,0 +1,87 @@
+# Native Linux port (ABI v3)
+
+This replaces the deleted MicroPython/Python/Cython `ports/linux` project. It is
+a native gothicOS/null_kernel port: the same ABI v3 user runtime, service model
+and SecureKernel policy are used on AMD64 and under Linux 6.6.162 LTS.
+
+## Status
+
+Phase 1 is implemented and out-of-tree:
+
+- `src/lkm/main.c` builds `nkabi3.ko`, a misc-device LKM that owns the bounded
+  kernel half of ABI v3: `GETINFO`, `LOG`, `YIELD`, `SLEEP`, `TICKS` and the
+  shared USB RAM-disk primitives.
+- `src/user/nk64_syscall_linux.c` implements the `nk64_syscall()` primitive for
+  the unmodified `libnk64` wrappers. ABI v3 numbers are decoded in userspace;
+  they are never issued as Linux syscalls, so the two ABIs cannot collide.
+- `src/user/init_pid1.c` is a PID 1 replacement. It starts the same `init64`
+  service chain (SecureKernel, `usb64`, `nksh`) using Linux threads that share
+  one address space, matching the AMD64 task model.
+- `configs/initramfs/init` and `scripts/mkinitramfs.py` build a Linux initramfs
+  that mounts `/proc`, `/sys` and `/dev`, loads `nkabi3.ko`, maps `@/` to `/@`
+  and execs the native init.
+- `patches/optional/` is reserved for the deeper Linux patch set. The module
+  exports `nk64_parasite_mode()` as the stable hook for scheduler/VFS/exec
+  patches; no kernel source is downloaded or modified by this directory.
+
+Filesystems, USB/SATA policy, SecureKernel and the shell remain userspace
+services. The LKM does not absorb them and does not execute arbitrary ELFs in
+kernel mode.
+
+## Build
+
+No Linux source is needed for the userspace binary and host checks:
+
+```sh
+make -C nullk/ports/linux
+```
+
+Build the LKM only when a matching Linux 6.6.162 tree is available:
+
+```sh
+make -C nullk/ports/linux module KDIR=/path/to/linux-6.6.162
+make -C nullk/ports/linux initramfs KDIR=/path/to/linux-6.6.162
+```
+
+Outputs go to `build/NullKernel/linux/`:
+
+| Output | Purpose |
+| --- | --- |
+| `nullk-linux.elf` | PID 1 replacement containing init64 + all ring-3 services |
+| `test_linux_port` | Host ABI-layout/path-map checks |
+| `nkabi3.ko` | Optional ABI v3 control-plane LKM |
+| `initrd-6.6.162-nk.img` | gzip cpio initramfs with `/init` and `/@` payload |
+
+## ABI boundary
+
+`nullk/include/nullk/abi64.h` remains canonical. `include/nullk_linux/abi64_kernel.h`
+is a byte-layout mirror for kernel code because Linux headers do not provide
+`<stdint.h>`; `tests/test_abi_layout.c` asserts that the mirror and canonical
+structs have identical sizes and offsets.
+
+Syscall routing:
+
+| Calls | Handler |
+| --- | --- |
+| `READ`, `WRITE`, `OPEN`, `CLOSE`, `STAT`, `READDIR` | Linux userspace VFS adapter rooted at `/@` (`NULLK64_ROOT` overrides it for tests) |
+| `YIELD`, `SLEEP`, `TICKS`, `GETINFO`, `LOG` | `/dev/nkabi3` ioctl, with userspace fallback |
+| `USB_*` | `/dev/nkabi3` bounded 2-LUN RAM disk |
+| `TASK_CREATE`, `TASK_STATE`, `EXIT`, `EXEC`, `EXEC_MEM` | pthread task model + in-process ELF loader |
+| `MMAP` | Linux anonymous mapping, including the ABI sandbox hint |
+| `IRQ_BIND`, `IPC_*`, `FB_*`, `INPUT_READ` | forwarded to the LKM; unsupported until the patch phase |
+
+InterfaceKit stays opt-in. Without a framebuffer backend, it logs that the
+desktop is disabled and serial services continue.
+
+## Linux boot wiring
+
+The Limine config can boot Linux 6.6.162 with:
+
+```text
+KERNEL_PATH: boot():/vmlinux-6.6.162-nk
+MODULE_PATH: boot():/initrd-6.6.162-nk.img
+CMDLINE: root=LABEL=gothicOS-linux-root ro init=/init
+```
+
+The generated initramfs supplies `/init`, so the explicit `init=/init` is only
+needed for debugging custom boot setups.

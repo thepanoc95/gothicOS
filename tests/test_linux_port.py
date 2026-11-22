@@ -1,51 +1,44 @@
-import importlib.util
-import sys
-import tempfile
-import unittest
+"""Contract checks for the native null_kernel Linux ABI v3 port."""
+
 from pathlib import Path
+import unittest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PORT_ROOT = REPO_ROOT / "ports" / "linux"
+PORT_ROOT = REPO_ROOT / "nullk" / "ports" / "linux"
 
 
-def load_build_module():
-    spec = importlib.util.spec_from_file_location("linux_port_build", PORT_ROOT / "build.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-class LinuxPortBuildTests(unittest.TestCase):
-    def test_linux_port_sources_are_declared(self):
-        module = load_build_module()
-        self.assertEqual(module.SOURCE_FILES, ("linux_port.pyx",))
-        for relative in module.SOURCE_FILES + module.HEADER_FILES:
+class NativeLinuxPortTests(unittest.TestCase):
+    def test_native_port_sources_are_declared(self):
+        required = [
+            "README.md",
+            "Makefile",
+            "Kbuild",
+            "include/nullk_linux/abi3_ioctl.h",
+            "include/nullk_linux/abi64_kernel.h",
+            "include/nullk_linux/parasite.h",
+            "include/nullk_linux/user_shim.h",
+            "src/lkm/main.c",
+            "src/user/init_pid1.c",
+            "src/user/nk64_syscall_linux.c",
+            "configs/initramfs/init",
+            "scripts/mkinitramfs.py",
+            "patches/optional/README.md",
+            "tests/test_abi_layout.c",
+        ]
+        for relative in required:
             self.assertTrue((PORT_ROOT / relative).is_file(), relative)
-        self.assertTrue((PORT_ROOT / "nullkern_lkm.c").is_file())
-        self.assertTrue((PORT_ROOT / "Makefile").is_file())
 
-    def test_cython_translates_linux_port(self):
-        module = load_build_module()
-        with tempfile.TemporaryDirectory() as output_dir:
-            generated = module.build_port(output_dir, python=sys.executable)
-            self.assertEqual(len(generated), 1)
-            self.assertTrue(generated[0].is_file())
-            source = generated[0].read_text(encoding="utf-8")
-            self.assertIn("gothicos_linux_port.h", source)
-            self.assertIn("handoff_status", source)
-            self.assertIn("handoff_start", source)
-            self.assertGreater(len(source), 1000)
+    def test_old_cython_port_is_removed(self):
+        old_root = REPO_ROOT / "ports" / "linux"
+        self.assertFalse(old_root.exists())
+        for relative in ("build.py", "setup.py", "linux_port.pyx",
+                         "nullkern_lkm.c"):
+            self.assertFalse((old_root / relative).exists(), relative)
 
-    def test_shared_ioctl_header_is_in_sync(self):
-        header = (PORT_ROOT / "include" / "gothicos_linux_port.h").read_text(encoding="utf-8")
-        self.assertIn("GOTHICOS_LKM_IOC_GET_INFO", header)
-        self.assertIn("GOTHICOS_LKM_IOC_RAISE_IRQ", header)
-        self.assertIn("GOTHICOS_LKM_IOC_PORT_SEND", header)
-        self.assertIn("GOTHICOS_LKM_IOC_SCHED_HINT", header)
-        self.assertIn("GOTHICOS_LKM_IOC_HANDOFF_STATUS", header)
-        self.assertIn("GOTHICOS_LKM_IOC_HANDOFF_START", header)
-        self.assertIn("GOTHICOS_LKM_IOC_HANDOFF_STOP", header)
-        self.assertIn("gothicos_lkm_handoff_info_t", header)
+    def test_build_recipe_uses_native_make_targets(self):
+        recipe = (PORT_ROOT / "build.json").read_text()
+        self.assertIn("nullk/ports/linux", recipe)
+        self.assertIn("test", recipe)
 
 
 if __name__ == "__main__":
