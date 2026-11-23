@@ -62,6 +62,9 @@ INIT_OBJ := $(OBJ)/initramfs/initramfs_init.o
 INIT_BIN := $(BUILD)/initramfs-init
 TEST_SRC := tests/test_abi_layout.c
 TEST_OBJ := $(OBJ)/tests/test_abi_layout.o
+KEYMAP_TEST_SRC := tests/test_evdev_keycode.c
+KEYMAP_TEST_OBJ := $(OBJ)/tests/test_evdev_keycode.o
+KEYMAP_TEST_BIN := $(BUILD)/test_evdev_keycode
 TEST_BIN := $(BUILD)/test_linux_port
 
 .PHONY: all user module test initramfs clean module-clean
@@ -103,8 +106,17 @@ $(TEST_BIN): $(TEST_OBJ) $(OBJ)/port/user/nk64_syscall_linux.o \
 	@mkdir -p $(dir $@)
 	$(CC) -pthread -o $@ $^
 
-test: $(TEST_BIN)
+$(KEYMAP_TEST_OBJ): $(KEYMAP_TEST_SRC)
+	@mkdir -p $(dir $@)
+	$(CC) $(USER_CFLAGS) -c $< -o $@
+
+$(KEYMAP_TEST_BIN): $(KEYMAP_TEST_OBJ)
+	@mkdir -p $(dir $@)
+	$(CC) -o $@ $^
+
+test: $(TEST_BIN) $(KEYMAP_TEST_BIN)
 	$(TEST_BIN)
+	$(KEYMAP_TEST_BIN)
 
 module:
 	$(MAKE) -C $(KDIR) M=$(PORT_ROOT) modules

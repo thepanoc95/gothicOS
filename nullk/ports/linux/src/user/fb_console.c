@@ -24,9 +24,12 @@
 #include "libnk64.h"
 #include "nullk/interfacekit.h"
 #include "nullk/printk.h"
+#include "nullk_linux/evdev_keycode.h"
 #include "nullk_linux/fb_console.h"
 
-#define FB_CONSOLE_SCALE        2u
+/* The shared InterfaceKit font is 3x5. Scale it 4x so a 1024x768 scanout gives
+ * a readable ~63x29 terminal instead of a dense 126x60 one. */
+#define FB_CONSOLE_SCALE        4u
 #define FB_CONSOLE_CELL_W       ((INTERFACEKIT_FONT_WIDTH + 1u) * FB_CONSOLE_SCALE)
 #define FB_CONSOLE_CELL_H       ((INTERFACEKIT_FONT_HEIGHT + 1u) * FB_CONSOLE_SCALE)
 #define FB_CONSOLE_HEADER_ROWS  2u
@@ -60,6 +63,7 @@ static pthread_mutex_t g_input_lock = PTHREAD_MUTEX_INITIALIZER;
 
 static int g_kbd_fds[FB_CONSOLE_KEYBOARDS];
 static int g_kbd_count;
+static unsigned char g_kbd_seen[FB_CONSOLE_EVENT_PATHS];
 static int g_kbd_logged;
 static int g_shift;
 static int g_caps;
@@ -256,52 +260,6 @@ static int key_has_bit(const unsigned char *bits, size_t bits_len,
     return (int)((bits[code / 8u] >> (code % 8u)) & 1u);
 }
 
-static uint8_t key_to_ascii(unsigned int code, int shift, int caps)
-{
-    static const char shifted_digits[] = ")!@#$%^&*(";
-    int upper;
-
-    if (code >= KEY_A && code <= KEY_Z) {
-        char c = (char)('a' + (code - KEY_A));
-
-        upper = (shift ^ caps) != 0;
-        if (upper) {
-            c = (char)(c - 'a' + 'A');
-        }
-        return (uint8_t)c;
-    }
-    if (code >= KEY_0 && code <= KEY_9) {
-        if (shift) {
-            return (uint8_t)shifted_digits[code - KEY_0];
-        }
-        return (uint8_t)('0' + (code - KEY_0));
-    }
-
-    switch (code) {
-    case KEY_SPACE:       return (uint8_t)' ';
-    case KEY_ENTER:
-    case KEY_KPENTER:     return (uint8_t)'\n';
-    case KEY_BACKSPACE:   return (uint8_t)'\b';
-    case KEY_TAB:         return (uint8_t)'\t';
-    case KEY_ESC:         return (uint8_t)'\x1b';
-    case KEY_MINUS:       return shift ? (uint8_t)'_' : (uint8_t)'-';
-    case KEY_EQUAL:       return shift ? (uint8_t)'+' : (uint8_t)'=';
-    case KEY_LEFTBRACE:   return shift ? (uint8_t)'{' : (uint8_t)'[';
-    case KEY_RIGHTBRACE:  return shift ? (uint8_t)'}' : (uint8_t)']';
-    case KEY_SEMICOLON:   return shift ? (uint8_t)':' : (uint8_t)';';
-    case KEY_APOSTROPHE:  return shift ? (uint8_t)'"' : (uint8_t)'\'';
-    case KEY_GRAVE:       return shift ? (uint8_t)'~' : (uint8_t)'`';
-    case KEY_COMMA:       return shift ? (uint8_t)'<' : (uint8_t)',';
-    case KEY_DOT:         return shift ? (uint8_t)'>' : (uint8_t)'.';
-    case KEY_SLASH:       return shift ? (uint8_t)'?' : (uint8_t)'/';
-    case KEY_BACKSLASH:   return shift ? (uint8_t)'|' : (uint8_t)'\\';
-#ifdef KEY_102ND
-    case KEY_102ND:       return shift ? (uint8_t)'~' : (uint8_t)'`';
-#endif
-    default:              return 0u;
-    }
-}
-
 static void keyboard_event(const struct input_event *ev)
 {
     uint8_t ch;
@@ -314,7 +272,8 @@ static void keyboard_event(const struct input_event *ev)
         return;
     }
     if (ev->code == KEY_CAPSLOCK) {
-        if (ev->value != 0) {
+        /* value 2 is key autorepeat, not a new caps-lock press. */
+        if (ev->value == 1) {
             g_caps = !g_caps;
         }
         return;
@@ -322,7 +281,7 @@ static void keyboard_event(const struct input_event *ev)
     if (ev->value == 0) {
         return;
     }
-    ch = key_to_ascii((unsigned int)ev->code, g_shift, g_caps);
+    ch = nk64_evdev_key_to_ascii((unsigned int)ev->code, g_shift, g_caps);
     if (ch != 0u) {
         input_push(ch);
     }
@@ -362,11 +321,19 @@ static void open_keyboards(void)
 
     for (i = 0u; i < FB_CONSOLE_EVENT_PATHS &&
                   (uint32_t)g_kbd_count < FB_CONSOLE_KEYBOARDS; i++) {
+        /* The keyboard thread runs this scan repeatedly so devices that appear
+         * later can still be attached. Remember every path we opened: opening
+         * the same evdev node more than once makes every keystroke repeat once
+         * per descriptor. */
+        if (g_kbd_seen[i] != 0u) {
+            continue;
+        }
         (void)snprintf(path, sizeof(path), "/dev/input/event%u", i);
         fd = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
         if (fd < 0) {
-            continue;
+            continue; /* leave unseen so a later hotplug can be picked up */
         }
+        g_kbd_seen[i] = 1u;
         if (ioctl(fd, EVIOCGBIT(EV_KEY, sizeof(bits)), bits) < 0 ||
             !key_has_bit(bits, sizeof(bits), KEY_A) ||
             !key_has_bit(bits, sizeof(bits), KEY_ENTER) ||

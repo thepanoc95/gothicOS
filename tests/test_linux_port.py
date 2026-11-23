@@ -15,6 +15,7 @@ class NativeLinuxPortTests(unittest.TestCase):
             "Kbuild",
             "include/nullk_linux/abi3_ioctl.h",
             "include/nullk_linux/abi64_kernel.h",
+            "include/nullk_linux/evdev_keycode.h",
             "include/nullk_linux/fb_console.h",
             "include/nullk_linux/parasite.h",
             "include/nullk_linux/user_shim.h",
@@ -62,9 +63,21 @@ class NativeLinuxPortTests(unittest.TestCase):
         self.assertIn("poll(&pfd, 1u, 10)", shim)
         self.assertIn("/dev/input/event%u", console)
         self.assertIn("EVIOCGBIT(EV_KEY", console)
+        self.assertIn("g_kbd_seen", console)  # never open one evdev node twice
+        self.assertIn("nk64_evdev_key_to_ascii", console)
         self.assertIn("interfacekit_glyph", console)
         self.assertNotIn("interfacekit_server", console)
         self.assertIn("src/user/fb_console.c", makefile)
+        self.assertIn("tests/test_evdev_keycode.c", makefile)
+
+    def test_evdev_keycodes_are_not_treated_as_alphabetical(self):
+        keymap = (PORT_ROOT / "include/nullk_linux/evdev_keycode.h").read_text()
+        self.assertIn("[KEY_L]         = 'l'", keymap)
+        self.assertIn("[KEY_S]         = 's'", keymap)
+        self.assertNotIn("return (uint8_t)('a' + (code - KEY_A))", keymap)
+        test = (PORT_ROOT / "tests/test_evdev_keycode.c").read_text()
+        self.assertIn("KEY_L, 0, 0) == (uint8_t)'l'", test)
+        self.assertIn("KEY_S, 0, 0) == (uint8_t)'s'", test)
 
     def test_console_paths_are_documented(self):
         readme = (PORT_ROOT / "README.md").read_text()

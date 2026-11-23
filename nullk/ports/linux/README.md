@@ -85,7 +85,10 @@ are two independent console paths, neither of which needs InterfaceKit:
 - **DRM framebuffer console.** At `nk64_linux_init()` the shim probes
   `FB_INFO`/`FB_MAP` and, when a framebuffer is available, starts a standalone
   console on the scanout buffer. Init/nksh output is mirrored there, and keys
-  are read directly from `/dev/input/event*`. This works with `-vga virtio` or
+  are read directly from `/dev/input/event*` using the QWERTY evdev map. Each
+  input device is opened once, so a keystroke is delivered exactly once. The
+  3x5 font is drawn at 4x scale (about 63x29 characters at 1024x768) for
+  readability. This works with `-vga virtio` or
   `-vga none -device virtio-gpu-pci`, even though the kernel has no `CONFIG_FB`
   or `DRM_FBDEV_EMULATION`.
 - **Legacy VGA/VT console.** With `-vga std` and no serial override, Linux uses
