@@ -1,15 +1,23 @@
-/* Linux evdev keycode -> ASCII translation for the standalone framebuffer
- * console.
+/* Linux evdev keycode -> console input translation.
  *
- * KEY_A..KEY_Z are *not* contiguous in alphabetical order: they follow the
- * QWERTY layout (KEY_A, KEY_S, KEY_D, ...). Treating them as 'a' + (code - KEY_A)
- * turns 'l' into 'i' and 's' into 'b'. Keep this table next to the console so
- * both the implementation and the host test agree on the mapping.
+ * Two separate bugs used to make the Linux console unusable:
+ *
+ * 1. KEY_A..KEY_Z are *not* contiguous in alphabetical order; they follow the
+ *    QWERTY layout (KEY_A, KEY_S, KEY_D, ...). Treating them as
+ *    'a' + (code - KEY_A) turns 'l' into 'i' and 's' into 'b'. The table below
+ *    is explicit for that reason.
+ * 2. evdev sends EV_KEY value 2 for autorepeat. Feeding those to the input
+ *    queue repeats one keystroke dozens of times (the "IIIIIIII" flood). the
+ *    console ignores value 2, so only real presses and releases count.
+ *
+ * Editing/navigation keys have no ASCII value; they become the usual ANSI
+ * escape sequences so nksh can offer a real line editor without a TTY.
  */
 #ifndef NULLK_LINUX_EVDEV_KEYCODE_H
 #define NULLK_LINUX_EVDEV_KEYCODE_H
 
 #include <linux/input.h>
+#include <stddef.h>
 #include <stdint.h>
 
 static inline uint8_t nk64_evdev_key_to_ascii(unsigned int code, int shift,
@@ -84,6 +92,12 @@ static inline uint8_t nk64_evdev_key_to_ascii(unsigned int code, int shift,
         [KEY_KPDOT]     = '.',
         [KEY_KPSLASH]   = '/',
         [KEY_KPASTERISK] = '*',
+#ifdef KEY_KPEQUAL
+        [KEY_KPEQUAL]   = '=',
+#endif
+#ifdef KEY_KPCOMMA
+        [KEY_KPCOMMA]   = ',',
+#endif
 #ifdef KEY_102ND
         [KEY_102ND]     = '\\',
 #endif
@@ -110,6 +124,18 @@ static inline uint8_t nk64_evdev_key_to_ascii(unsigned int code, int shift,
         [KEY_COMMA]      = '<',
         [KEY_DOT]        = '>',
         [KEY_SLASH]      = '?',
+        [KEY_KP1]        = '!',
+        [KEY_KP2]        = '@',
+        [KEY_KP3]        = '#',
+        [KEY_KP4]        = '$',
+        [KEY_KP5]        = '%',
+        [KEY_KP6]        = '^',
+        [KEY_KP7]        = '&',
+        [KEY_KP8]        = '*',
+        [KEY_KP9]        = '(',
+        [KEY_KP0]        = ')',
+        [KEY_KPMINUS]    = '_',
+        [KEY_KPPLUS]     = '+',
 #ifdef KEY_102ND
         [KEY_102ND]      = '|',
 #endif
@@ -130,6 +156,60 @@ static inline uint8_t nk64_evdev_key_to_ascii(unsigned int code, int shift,
         return shifted[code];
     }
     return c;
+}
+
+/* Full console translation: one ASCII byte, or an ANSI escape sequence for
+ * cursor/navigation keys. Returns the number of bytes written to `out`.
+ * `shift`/`caps` are modifier states; the caller handles Ctrl separately so
+ * Ctrl+letter still reads as a control byte. */
+static inline size_t nk64_evdev_key_to_sequence(unsigned int code, int shift,
+                                                int caps, uint8_t *out,
+                                                size_t cap)
+{
+    static const struct {
+        unsigned int code;
+        const char *seq;
+    } specials[] = {
+        {KEY_UP, "\x1b[A"},
+        {KEY_DOWN, "\x1b[B"},
+        {KEY_RIGHT, "\x1b[C"},
+        {KEY_LEFT, "\x1b[D"},
+        {KEY_HOME, "\x1b[H"},
+        {KEY_END, "\x1b[F"},
+        {KEY_INSERT, "\x1b[2~"},
+        {KEY_DELETE, "\x1b[3~"},
+        {KEY_PAGEUP, "\x1b[5~"},
+        {KEY_PAGEDOWN, "\x1b[6~"},
+        {KEY_F1, "\x1bOP"},
+        {KEY_F2, "\x1bOQ"},
+        {KEY_F3, "\x1bOR"},
+        {KEY_F4, "\x1bOS"},
+        {KEY_F5, "\x1b[15~"},
+        {KEY_F6, "\x1b[17~"},
+    };
+    uint8_t ch;
+    size_t i;
+    size_t len = 0u;
+
+    if (out == NULL || cap == 0u) {
+        return 0u;
+    }
+    ch = nk64_evdev_key_to_ascii(code, shift, caps);
+    if (ch != 0u) {
+        out[0] = ch;
+        return 1u;
+    }
+    for (i = 0u; i < sizeof(specials) / sizeof(specials[0]); i++) {
+        if (specials[i].code != code) {
+            continue;
+        }
+        while (specials[i].seq[len] != '\0' && len < cap) {
+            out[len] = (uint8_t)specials[i].seq[len];
+            len++;
+        }
+        return len;
+    }
+    return 0u;
 }
 
 #endif /* NULLK_LINUX_EVDEV_KEYCODE_H */
