@@ -15,7 +15,7 @@ def _compile_shell():
         sys.path.insert(0, str(SDK_ROOT))
     from umbra import compile_source
 
-    source = (PORT_ROOT / "sh.uts").read_text(encoding="utf-8")
+    source = (PORT_ROOT / "sh.ts").read_text(encoding="utf-8")
     return compile_source(source, "sh").package
 
 

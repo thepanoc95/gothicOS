@@ -1,4 +1,5 @@
 #include "umbrart.hpp"
+#include "os_modules.hpp"
 
 #if defined(UMBRA_NULLK_AMD64)
 #include "nullk/abi64.h"
@@ -21,6 +22,7 @@ static const uint8_t OP_NOP=0, OP_PUSH_CONST=1, OP_PUSH_TRUE=2,
 static const uint8_t N_LOG=1, N_YIELD=2, N_INFO=3, N_PORT_SEND=4,
  N_PORT_RECEIVE=5, N_MEM_ALLOC=6, N_MEM_FREE=7, N_IRQ_TIMER=8,
  N_TASK_STOP=9;
+static const uint8_t NATIVE_MAX=35;
 
 static uint16_t le16(const uint8_t *p) {
     return (uint16_t)p[0] | ((uint16_t)p[1] << 8);
@@ -55,7 +57,8 @@ Runtime::Runtime()
    constants_offset_(0), code_offset_(0), metadata_offset_(0),
    actual_constants_(0), sp_(0), frame_count_(0), state_(TaskState::Empty),
    last_status_(Status::Ok), instructions_(0), max_stack_(64),
-   max_call_depth_(16), max_array_length_(256), budget_(128) {
+   max_call_depth_(16), max_array_length_(256), budget_(128),
+   native_dispatch_(nullptr), native_context_(nullptr) {
     error_[0]=0;
     for (unsigned i=0;i<10;i++) capabilities_[i]=false;
     for (unsigned i=0;i<8;i++) arrays_[i].used=false;
@@ -67,6 +70,10 @@ void Runtime::fail(Status s, const char *m) {
     error_[i]=0;
 }
 const char *Runtime::error_message() const { return error_; }
+void Runtime::set_native_dispatch(NativeDispatch dispatch, void *context) {
+    native_dispatch_=dispatch;
+    native_context_=context;
+}
 
 bool Runtime::read_u16(size_t at, uint16_t &out) const {
     if (!image_ || at+2>image_size_) return false;
@@ -132,8 +139,11 @@ bool Runtime::verify() {
                (op==OP_ARRAY_NEW && arg>max_array_length_)) {
                 fail(Status::InvalidPackage,"bytecode operand out of range"); return false;
             }
-            if(op==OP_CALL_NATIVE && (arg<1 || arg>9)) {
+            if(op==OP_CALL_NATIVE && (arg<1 || arg>NATIVE_MAX)) {
                 fail(Status::InvalidPackage,"unknown native function"); return false;
+            }
+            if(op==OP_CALL_NATIVE && arg>=10 && !os::find_native(arg)) {
+                fail(Status::InvalidPackage,"unknown OS module native binding"); return false;
             }
             if((op==OP_JMP || op==OP_JZ || op==OP_JNZ) &&
                ((uint16_t)arg*2u>=f.size)) {
@@ -322,15 +332,25 @@ void Runtime::log_value(const Value &v) {
 bool Runtime::require_capability(uint8_t id) {
     const char *name=nullptr;
     switch(id) {
+        case N_LOG: name="system.logging"; break;
+        case N_YIELD: name="system.yield"; break;
+        case N_INFO: name="system.info"; break;
         case N_PORT_SEND: name="port.send"; break;
         case N_PORT_RECEIVE: name="port.receive"; break;
         case N_MEM_ALLOC: name="memory.alloc"; break;
         case N_MEM_FREE: name="memory.free"; break;
         case N_IRQ_TIMER: name="irq.timer"; break;
         case N_TASK_STOP: name="task.stop"; break;
-        default: return true;
+        default: {
+            const os::Export *binding=os::find_native(id);
+            if(binding) name=binding->capability;
+            break;
+        }
     }
-    if(!has_capability(name)) { fail(Status::CapabilityDenied,"native call lacks declared @Capability"); return false; }
+    if(name && !has_capability(name)) {
+        fail(Status::CapabilityDenied,"native call lacks declared @Capability");
+        return false;
+    }
     return true;
 }
 
@@ -378,6 +398,52 @@ bool Runtime::native_call(uint8_t id,const Value *a,uint8_t argc,Value &out,bool
         return true;
     }
 #endif
+    // Pure runtime intrinsics: no kernel capability or host service required.
+    if(id==os::MathAbs && argc==1) {
+        out=a[0];
+        if(out.type==Value::Integer) {
+            if(out.as.integer==(-2147483647-1)) { fail(Status::RuntimeError,"Math.abs integer overflow"); return false; }
+            if(out.as.integer<0) out.as.integer=-out.as.integer;
+        } else if(out.type==Value::Float) {
+            if(out.as.real<0) out.as.real=-out.as.real;
+        } else { fail(Status::RuntimeError,"Math.abs requires a number"); return false; }
+        return true;
+    }
+    if((id==os::MathMin || id==os::MathMax) && argc==2) {
+        bool less=false;
+        if(a[0].type==Value::Integer && a[1].type==Value::Integer)
+            less=a[0].as.integer<a[1].as.integer;
+        else if((a[0].type==Value::Integer || a[0].type==Value::Float) &&
+                (a[1].type==Value::Integer || a[1].type==Value::Float)) {
+            double x=a[0].type==Value::Integer?(double)a[0].as.integer:a[0].as.real;
+            double y=a[1].type==Value::Integer?(double)a[1].as.integer:a[1].as.real;
+            less=x<y;
+        } else { fail(Status::RuntimeError,"Math.min/max require numbers"); return false; }
+        out=(id==os::MathMin?(less?a[0]:a[1]):(less?a[1]:a[0]));
+        return true;
+    }
+    // OS library imports are linked by the compiler to stable native IDs.
+    // Their actual implementation belongs to gothicOS subsystems, not to a
+    // kernel-specific syscall shim. The host dispatcher is supplied by the
+    // process/task integration layer.
+    if(id>=os::SystemSleep && id<=os::LogError) {
+        if(id>=os::LogDebug && id<=os::LogError) {
+            if(argc!=1) { fail(Status::RuntimeError,"logging native arity mismatch"); return false; }
+            log_value(a[0]);
+            return true;
+        }
+        if(!native_dispatch_) {
+            fail(Status::UnsupportedNative,"OS module has no registered subsystem dispatcher");
+            return false;
+        }
+        bool host_yielded=false;
+        if(!native_dispatch_(native_context_,id,a,argc,&out,&host_yielded)) {
+            fail(Status::RuntimeError,"OS subsystem native call failed");
+            return false;
+        }
+        yielded=host_yielded;
+        return true;
+    }
     fail(Status::UnsupportedNative,"native binding is not implemented for this ABI");
     return false;
 }
@@ -429,7 +495,13 @@ bool Runtime::execute_one() {
     if(op==OP_CALL) return call(arg);
     if(op==OP_CALL_NATIVE) {
         static const uint8_t arity[10]={0,1,0,0,2,1,2,2,0,1};
-        uint8_t argc=arity[arg];
+        uint8_t argc=0;
+        if(arg<10) argc=arity[arg];
+        else {
+            const os::Export *binding=os::find_native(arg);
+            if(!binding) { fail(Status::UnsupportedNative,"unknown OS module binding"); return false; }
+            argc=binding->argument_count;
+        }
         if(sp_<argc) { fail(Status::StackError,"native argument underflow"); return false; }
         Value args[2]; for(uint8_t i=0;i<argc;i++) args[i]=stack_[sp_-argc+i];
         bool yielded=false;

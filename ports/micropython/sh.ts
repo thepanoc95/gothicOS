@@ -8,7 +8,7 @@ class Main {
         System.log("type help for commands");
         let running: uint32 = 1;
         while (running == 1) {
-            System.log("gothicOS> ");
+            System.log("> ");
             let command: uint32 = Port.receive("shell.in");
             if (command == 0) {
                 System.log("bye");

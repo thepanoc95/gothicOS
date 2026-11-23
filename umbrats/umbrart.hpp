@@ -40,7 +40,11 @@ struct Value {
 
 class Runtime {
 public:
+    typedef bool (*NativeDispatch)(void *context, uint8_t native_id,
+                                   const Value *args, uint8_t argc,
+                                   Value *result, bool *yielded);
     Runtime();
+    void set_native_dispatch(NativeDispatch dispatch, void *context);
     Result load(const void *package, size_t length);
     Result reset();
     Result step(uint32_t budget = 0);
@@ -92,6 +96,8 @@ private:
     uint32_t budget_;
     char error_[96];
     bool capabilities_[10];
+    NativeDispatch native_dispatch_;
+    void *native_context_;
 
     bool verify();
     bool decode_constants();

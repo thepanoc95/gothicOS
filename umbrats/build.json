@@ -5,7 +5,7 @@
         "steps": [
             {
                 "name": "build all",
-                "run": ["clang", "-I../nullk/include", "-ffreestanding", "umbrart.cpp -o umbra.elf"]
+			"run": ["clang", "-I../nullk/include", "-ffreestanding", "*.cpp -o umbra.elf"]
             }
         ]
     }
