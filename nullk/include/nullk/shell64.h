@@ -12,7 +12,16 @@
 #include "sandbox.h"
 #include "vfs.h"
 
-#define NK_SHELL_LINE_MAX 256u
+#define NK_SHELL_LINE_MAX      256u
+#define NK_SHELL_HISTORY_MAX   16u
+
+/* Mirrors the framebuffer console's NKFB_GUI_* requests. The shared engine must
+ * not include a port header, so it passes plain numbers through ctx->gui. */
+#define NK_SHELL_GUI_DEMO       0
+#define NK_SHELL_GUI_CLOSE      1
+#define NK_SHELL_GUI_PANEL_ON   2
+#define NK_SHELL_GUI_PANEL_OFF  3
+#define NK_SHELL_GUI_REFRESH    4
 
 typedef struct {
     /* Filesystem operations, supplied by the host of the shell. */
@@ -26,6 +35,11 @@ typedef struct {
     nk_status_t (*ui_start)(void);
     nk_status_t (*usb_read)(uint32_t lun, uint64_t lba, uint32_t count,
                             void *buf);
+    /* Optional framebuffer GUI engine behind `gui ...`; receives one of the
+     * NK_SHELL_GUI_* requests. */
+    nk_status_t (*gui)(uint32_t command);
+    /* Optional visible-console clear for `clear`; otherwise blank lines. */
+    void (*clear)(void);
 
     /* Output sinks. */
     void (*putc)(char c);
@@ -38,6 +52,14 @@ typedef struct {
     uint64_t ticks;
     uint32_t task_count;
     uint32_t flags;
+
+    /* Current directory, normalised as "@", "@/data", ... */
+    char cwd[NK_VFS_PATH_MAX];
+
+    /* Command history ring used by the line editor and `history`. */
+    char history[NK_SHELL_HISTORY_MAX][NK_SHELL_LINE_MAX];
+    uint32_t history_count;
+    uint32_t history_next;
 } nk_shell64_ctx_t;
 
 void nk_shell64_init(nk_shell64_ctx_t *ctx);
@@ -50,5 +72,19 @@ int nk_shell64_exec(nk_shell64_ctx_t *ctx, char *line);
 /* Print the nk) banner/help text. */
 void nk_shell64_banner(nk_shell64_ctx_t *ctx);
 void nk_shell64_help(nk_shell64_ctx_t *ctx);
+
+/* Resolve a user path against ctx->cwd into a normalised "@..." path. */
+nk_status_t nk_shell64_resolve(const nk_shell64_ctx_t *ctx, const char *arg,
+                               char *out, uint32_t cap);
+const char *nk_shell64_cwd(const nk_shell64_ctx_t *ctx);
+
+/* Command name table, NULL-terminated, for `help` and Tab completion. */
+const char *nk_shell64_command_name(uint32_t index);
+
+/* Line-editor history helpers. Index 0 is the most recent entry. */
+void nk_shell64_history_push(nk_shell64_ctx_t *ctx, const char *line);
+const char *nk_shell64_history_at(const nk_shell64_ctx_t *ctx,
+                                  uint32_t index_from_newest);
+uint32_t nk_shell64_history_count(const nk_shell64_ctx_t *ctx);
 
 #endif /* NULLK_SHELL64_H */

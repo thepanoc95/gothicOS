@@ -86,11 +86,37 @@ are two independent console paths, neither of which needs InterfaceKit:
   `FB_INFO`/`FB_MAP` and, when a framebuffer is available, starts a standalone
   console on the scanout buffer. Init/nksh output is mirrored there, and keys
   are read directly from `/dev/input/event*` using the QWERTY evdev map. Each
-  input device is opened once, so a keystroke is delivered exactly once. The
-  3x5 font is drawn at 4x scale (about 63x29 characters at 1024x768) for
-  readability. This works with `-vga virtio` or
-  `-vga none -device virtio-gpu-pci`, even though the kernel has no `CONFIG_FB`
-  or `DRM_FBDEV_EMULATION`.
+  input device is opened once, so a keystroke is delivered exactly once.
+  EV_KEY autorepeat (value 2) is ignored, so holding a key no longer floods
+  the line; navigation keys become ANSI sequences (`ESC [ A`, `ESC [ 3 ~`, ...)
+  for the shell's line editor. Text uses the port's own rounded 6x10 face with
+  real lowercase - `l` is not `I`, `s` is not `B` - at 2x scale, giving 71x28
+  characters at 1024x768 (47x28 with the GUI dashboard open). This works with
+  `-vga virtio` or `-vga none -device virtio-gpu-pci`, even though the kernel
+  has no `CONFIG_FB` or `DRM_FBDEV_EMULATION`.
+
+### GUI engine and console layout
+
+`src/user/fb_gfx.c` is a self-contained drawing core (blended pixels, rounded
+rectangles, gradients, lines and the console face) over the same `FB_MAP`
+scanout. `src/user/fb_gui.c` builds GUI-intended widgets on it: window chrome,
+cards, key/value rows, dividers, badges, buttons, progress bars, selectable
+lists, tables, a status bar and a theme palette. Neither file includes or calls
+InterfaceKit.
+
+The console uses that engine for a title bar, a right-hand dashboard (system,
+display, console buffer and shortcut cards) and a status bar with uptime. The
+dashboard follows the real `GETINFO`/`FB_INFO` values and disappears on small
+screens; `gui panel off` reclaims the columns. `gui demo` paints a modal
+showcase of every widget and returns on the next key press.
+
+### nksh on the framebuffer
+
+The shared command engine now tracks a working directory (`cd`, `.`, `..`),
+and adds `stat`, `head`, `wc`, `grep`, `history`, `sysinfo`, `gui`, plus a line
+editor: Left/Right/Home/End/Delete, word delete, Ctrl+A/E/U/K/L/C and Tab
+completion of command names. `gui demo` is mode-sensitive: any key dismisses
+the showcase instead of typing into the hidden prompt.
 - **Legacy VGA/VT console.** With `-vga std` and no serial override, Linux uses
   `tty0` for `/dev/console`, so the `nk)` prompt and keyboard also work without
   any DRM framebuffer.

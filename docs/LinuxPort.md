@@ -25,8 +25,13 @@ directly.
 - a standalone framebuffer console: the shim mirrors init/`nksh` output onto
   the DRM scanout from `FB_INFO`/`FB_MAP` and reads keys from
   `/dev/input/event*`, so the `nk)` prompt works without InterfaceKit, fbcon or
-  a serial UART. Text is scaled 4x (about 63x29 characters at 1024x768) and the
-  evdev map follows the QWERTY key order, so `l`/`s` no longer arrive as `i`/`b`;
+  a serial UART. Text uses the port's rounded 6x10 face with real lowercase at
+  2x scale (about 71x28 characters at 1024x768) and the evdev map follows the
+  QWERTY key order, so `l`/`s` no longer arrive as `i`/`b`; EV_KEY autorepeat is
+  ignored and navigation keys become ANSI sequences for the line editor;
+- a framebuffer GUI engine (`fb_gfx.c` + `fb_gui.c`) that paints title bars,
+  cards, tables, progress bars, badges, buttons, lists and a status bar on the
+  same scanout, with a live dashboard beside the CLI, without InterfaceKit;
 - console routing that follows Linux's `/dev/console` for serial/VT output while
   background service chatter goes to `/@/data/system/nullk.log`.
 

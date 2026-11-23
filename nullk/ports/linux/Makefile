@@ -23,7 +23,8 @@ INCLUDES := -Iinclude \
             -I/usr/include/drm
 
 COMMON_DEFS := -D_start=nk64_amd64_init_start \
-               -DNULLK_LIBNK64_EXTERNAL_SYSCALL
+               -DNULLK_LIBNK64_EXTERNAL_SYSCALL \
+               -DNULLK_LINUX_PORT
 
 USER_CFLAGS := -std=c11 -Wall -Wextra -Werror -O2 -g $(COMMON_DEFS) $(INCLUDES)
 USER_CXXFLAGS := -std=c++17 -Wall -Wextra -Werror -O2 -g \
@@ -32,7 +33,8 @@ LINK_FLAGS := -static -pthread -no-pie \
               -Wl,-Ttext-segment=0x10000000
 
 PORT_C_SRC := src/user/init_pid1.c src/user/nk64_syscall_linux.c \
-              src/user/fb_console.c
+              src/user/fb_console.c src/user/fb_font.c \
+              src/user/fb_gfx.c src/user/fb_gui.c
 PORT_C_OBJ := $(patsubst src/%.c,$(OBJ)/port/%.o,$(PORT_C_SRC))
 
 NULLK_C_SRC := apps/init64/main.c \
