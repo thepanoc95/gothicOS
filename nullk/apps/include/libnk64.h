@@ -86,6 +86,8 @@ void nk_printf(const char *fmt, ...);
 /* ---- Service entry points linked into the single init ELF -------------- */
 
 void interfacekit_server_entry(void);
+/* LVGL desktop task: claims the framebuffer and pumps LVGL (see apps/lvgl64). */
+void lvgl_desktop_entry(void);
 void interfacekit_demo_entry(void);
 void usb_service_entry(void);
 void shell_service_entry(void);

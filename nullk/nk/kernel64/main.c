@@ -22,8 +22,9 @@
 #include "nullk/acpi.h"
 #include "nullk/elf64.h"
 
-/* 512 KiB is enough for the test initrd images and matches the UART loader. */
-#define NK64_ELF_MAX 0x80000u
+/* The userspace image links LVGL, so 1 MiB covers init.elf (≈750 KiB)
+ * with headroom while keeping the bounce buffer small. */
+#define NK64_ELF_MAX 0x100000u
 
 /* Shared bounce buffer: declared extern by elfload/uartload/shell/syscall. */
 uint8_t nk64_elf_buffer[NK64_ELF_MAX];

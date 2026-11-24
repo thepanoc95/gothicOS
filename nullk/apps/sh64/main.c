@@ -27,6 +27,7 @@ extern void nk64_fb_console_clear(void) __attribute__((weak));
 static nk_shell64_ctx_t shell_ctx;
 static uint8_t g_exec_image[NK_SECUREKERNEL_MAX_IMAGE];
 static uint32_t g_ui_started;
+static uint32_t g_ui_lvgl_started;
 
 static nk_status_t sh_stat(const char *path, nk_vfs_stat_t *out)
 {
@@ -195,6 +196,23 @@ static nk_status_t sh_ui_start(void)
         return NK_STATUS_INTERNAL_ERROR;
     }
     nk_printf("[nksh] InterfaceKit demo task id=%u\n", (uint32_t)id);
+    return NK_STATUS_OK;
+}
+
+static nk_status_t sh_ui_lvgl(void)
+{
+    uint64_t id;
+
+    if (g_ui_lvgl_started != 0u) {
+        return NK_STATUS_ALREADY_EXISTS;
+    }
+    id = nk64_task_create("lvgl64", lvgl_desktop_entry, 0, 0);
+    if (id == 0u) {
+        nk_printf("[nksh] failed to start the LVGL desktop\n");
+        return NK_STATUS_INTERNAL_ERROR;
+    }
+    g_ui_lvgl_started = 1u;
+    nk_printf("[nksh] LVGL desktop task id=%u\n", (uint32_t)id);
     return NK_STATUS_OK;
 }
 
@@ -585,6 +603,7 @@ void shell_service_entry(void)
     shell_ctx.read = sh_read;
     shell_ctx.exec = sh_exec;
     shell_ctx.ui_start = sh_ui_start;
+    shell_ctx.ui_lvgl = sh_ui_lvgl;
     shell_ctx.usb_read = sh_usb_read;
     shell_ctx.gui = sh_gui;
     shell_ctx.clear = sh_clear;

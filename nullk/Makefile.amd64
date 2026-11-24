@@ -20,7 +20,10 @@ COMMON_FLAGS := -std=c11 -ffreestanding -fno-builtin -fno-stack-protector \
                 -fno-pic -fno-pie -fno-asynchronous-unwind-tables \
                 -Iinclude -Ink -Iapps/include
 KERNEL_CFLAGS := $(COMMON_FLAGS) -Werror -mcmodel=kernel
-USER_CFLAGS := $(COMMON_FLAGS) -Werror -Isecurekernel/include
+# Recursive assignment: LVGL_DIR is resolved after the fetch step below.
+USER_CFLAGS = $(COMMON_FLAGS) -Werror -Isecurekernel/include \
+              -Ishared/lvgl_port -DLV_CONF_INCLUDE_SIMPLE \
+              -isystem $(LVGL_DIR)
 USER_CXXFLAGS := -std=c++17 -ffreestanding -fno-builtin -fno-stack-protector \
                  -nostdlib -Wall -Wextra -Werror -O2 -m64 -mno-red-zone \
                  -fno-pic -fno-pie -fno-asynchronous-unwind-tables \
@@ -37,6 +40,16 @@ KERNEL_BIN := $(OUT)/null_kernel_amd64.bin
 USER_ELF := $(OUT)/init.elf
 INITRD := $(OUT)/initrd.tar
 
+# LVGL is fetched, not committed (see nullk/tools/fetch_lvgl.sh). It is built
+# with its own relaxed flags: third-party code, not our -Werror surface.
+LVGL_DIR := $(shell $(ROOT)/nullk/tools/fetch_lvgl.sh 2>/dev/null)
+LVGL_SRC := $(shell find $(LVGL_DIR)/src -name '*.c' 2>/dev/null)
+LVGL_OBJ := $(patsubst $(LVGL_DIR)/%.c,$(OUT)/obj/lvgl/%.o,$(LVGL_SRC))
+LVGL_CFLAGS := -std=c11 -ffreestanding -fno-builtin -fno-stack-protector \
+               -nostdlib -O2 -m64 -mno-red-zone -fno-pic -fno-pie \
+               -fno-asynchronous-unwind-tables -w
+LVGL_INC := -DLV_CONF_INCLUDE_SIMPLE -Ishared/lvgl_port -I$(LVGL_DIR)
+
 KERNEL_SRC := nk/kernel64/main.c nk/kernel64/task.c nk/kernel64/syscall.c \
               nk/kernel64/elfload.c nk/kernel64/uartload.c nk/kernel64/fallback_shell.c \
               shared/printk.c shared/vfs.c shared/elf64.c shared/acpi.c \
@@ -49,10 +62,12 @@ KERNEL_OBJ := $(patsubst %.c,$(OUT)/obj/%.o,$(KERNEL_SRC)) \
               $(patsubst %.S,$(OUT)/obj/%.o,$(KERNEL_ASM))
 
 USER_SRC := apps/init64/main.c apps/interfacekit/main.c apps/interfacekit_demo/main.c \
-            apps/sh64/main.c apps/usb64/main.c apps/libnk64.c \
+            apps/lvgl64/main.c apps/sh64/main.c apps/usb64/main.c apps/libnk64.c \
             shared/shell64.c shared/sandbox.c shared/usb_as_sata.c \
             shared/printk.c shared/interfacekit_gfx.c \
-            shared/interfacekit_widgets.c
+            shared/interfacekit_widgets.c \
+            shared/lvgl_port/lvgl_port.c shared/lvgl_port/lvgl_terminal.c \
+            shared/lvgl_port/lvgl_dashboard.c
 USER_CXX_SRC := securekernel/OSSecureAPI.cpp securekernel/src/api.cpp \
                 securekernel/src/sha256.cpp securekernel/src/engine.cpp \
                 securekernel/src/policy.cpp
@@ -111,10 +126,14 @@ $(KERNEL_ELF): $(KERNEL_OBJ) arch/amd64/linker.ld
 $(KERNEL_BIN): $(KERNEL_ELF)
 	$(OBJCOPY) -O binary $< $@
 
-$(USER_ELF): $(USER_OBJ) apps/user.ld
+$(OUT)/obj/lvgl/%.o: $(LVGL_DIR)/%.c
+	@mkdir -p $(dir $@)
+	$(CC) $(LVGL_CFLAGS) $(LVGL_INC) -c $< -o $@
+
+$(USER_ELF): $(USER_OBJ) $(LVGL_OBJ) apps/user.ld
 	@mkdir -p $(dir $@)
 	$(LD) -nostdlib -static -no-pie -z noexecstack \
-		-T apps/user.ld -Map=$(OUT)/init.map -o $@ $(USER_OBJ)
+		-T apps/user.ld -Map=$(OUT)/init.map -o $@ $(USER_OBJ) $(LVGL_OBJ)
 
 $(INITRD): $(KERNEL_ELF) $(USER_ELF) limine.cfg tools/mkinitrd.py
 	@mkdir -p $(dir $@)

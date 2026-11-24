@@ -499,6 +499,7 @@ void nk_shell64_help(nk_shell64_ctx_t *ctx)
                "  mem wr <hex> <hexbytes> write the sandbox window\n"
                "  exec <path>             SecureKernel-checked ELF exec\n"
                "  ui start                start gothicOS InterfaceKit\n"
+               "  ui lvgl                 start the LVGL desktop (claims the fb)\n"
                "  gui demo                GUI engine showcase on the framebuffer\n"
                "  gui close | panel on|off\n"
                "  usb lun <n>             inspect a NKUSBPRG LUN\n"
@@ -1035,8 +1036,29 @@ static void nk_sh_cmd_ui(nk_shell64_ctx_t *ctx, uint32_t argc, char **argv)
 {
     nk_status_t status;
 
-    if (argc < 2u || !nk_sh_streq(argv[1], "start")) {
-        nk_sh_puts(ctx, "usage: ui start\n");
+    if (argc < 2u) {
+        nk_sh_puts(ctx, "usage: ui start | ui lvgl\n");
+        return;
+    }
+    if (nk_sh_streq(argv[1], "lvgl")) {
+        /* LVGL claims the whole framebuffer, so it is mutually exclusive
+         * with the InterfaceKit desktop: whichever starts first owns it. */
+        if (ctx->ui_lvgl == (nk_status_t (*)(void))0) {
+            nk_sh_puts(ctx, "ui: LVGL desktop unavailable in this shell\n");
+            return;
+        }
+        status = ctx->ui_lvgl();
+        if (status == NK_STATUS_OK) {
+            nk_sh_puts(ctx, "ui: LVGL desktop started\n");
+        } else if (status == NK_STATUS_ALREADY_EXISTS) {
+            nk_sh_puts(ctx, "ui: LVGL desktop is already running\n");
+        } else {
+            nk_sh_printf(ctx, "ui lvgl: %u\n", (uint32_t)status);
+        }
+        return;
+    }
+    if (!nk_sh_streq(argv[1], "start")) {
+        nk_sh_puts(ctx, "usage: ui start | ui lvgl\n");
         return;
     }
     if (ctx->ui_start == (nk_status_t (*)(void))0) {
