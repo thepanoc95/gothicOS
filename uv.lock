@@ -2,12 +2,6 @@ version = 1
 revision = 5
 requires-python = ">=3.14"
 
-[manifest]
-members = [
-    "gothicos",
-    "gothicos-sdk",
-]
-
 [[package]]
 name = "attrs"
 version = "26.1.0"
@@ -64,7 +58,6 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "cython" },
-    { name = "gothicos-sdk" },
     { name = "jsonschema" },
     { name = "mpremote" },
     { name = "mpy-cross" },
@@ -74,17 +67,11 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "cython", specifier = ">=3.3.1" },
-    { name = "gothicos-sdk", editable = "SDK" },
     { name = "jsonschema", specifier = ">=4.23" },
     { name = "mpremote", specifier = ">=1.29.0" },
     { name = "mpy-cross", specifier = ">=1.29.0.post2" },
     { name = "west", specifier = ">=1.5.0" },
 ]
-
-[[package]]
-name = "gothicos-sdk"
-version = "1.1.1"
-source = { editable = "SDK" }
 
 [[package]]
 name = "jsonschema"

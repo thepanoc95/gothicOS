@@ -15,3 +15,6 @@ build/
 target/
 .tmp
 *.tmp
+*.o*
+*.ko
+*.mod

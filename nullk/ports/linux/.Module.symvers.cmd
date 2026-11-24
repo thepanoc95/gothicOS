@@ -1,0 +1,1 @@
+savedcmd_/home/milo/gothicOS/nullk/ports/linux/Module.symvers :=  scripts/mod/modpost -M        -o /home/milo/gothicOS/nullk/ports/linux/Module.symvers -n -T /home/milo/gothicOS/nullk/ports/linux/modules.order -i Module.symvers -e 

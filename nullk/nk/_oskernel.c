@@ -54,7 +54,7 @@ void nkk_boot(void) {
     /* The console driver needs its clocks, resets and pins ready before the
      * first log line; QEMU tolerated the old order, RP2040 does not. */
     nkk_arch_early_init();
-    nkk_console_write("null_kernel baremetal / NULLK ABI v2\n", 37);
+    nkk_console_write("null_kernel says hello!\n", 37);
 
     nkk_set_runlevel(NK_RUNLEVEL_PLATFORM);
     nkk_set_runlevel(NK_RUNLEVEL_CORE);

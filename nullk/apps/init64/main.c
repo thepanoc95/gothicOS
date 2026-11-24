@@ -59,7 +59,7 @@ void _start(void)
     uint64_t shell_id;
     uint32_t rc;
 
-    nk_printf("\nnull_kernel AMD64: userspace init (ABI v3, ring 3)\n");
+    nk_printf("\nnull_kernel: userspace init (ABI v3, ring 3)\n");
     nk_memset(&info, 0, sizeof(info));
     rc = nk64_getinfo(&info);
     if (rc != 0) {

@@ -1,0 +1,1 @@
+savedcmd_/home/milo/gothicOS/nullk/ports/linux/nkabi3.mod := printf '%s\n'   src/lkm/main.o | awk '!x[$$0]++ { print("/home/milo/gothicOS/nullk/ports/linux/"$$0) }' > /home/milo/gothicOS/nullk/ports/linux/nkabi3.mod

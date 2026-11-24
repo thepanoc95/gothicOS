@@ -27,14 +27,14 @@ ARCH_DIR := arch/arm/dev/rp2040
 ARCH_FLAGS := -mcpu=cortex-m0plus
 BOARD_BUILD := $(BUILD)/rp2040
 CROSS_OBJ := $(BOARD_BUILD)/obj
-ELF := $(BOARD_BUILD)/null_kernel_rp2040.elf
-BIN := $(BOARD_BUILD)/null_kernel_rp2040.bin
-UF2 := $(BOARD_BUILD)/null_kernel_rp2040.uf2
+ELF := $(BOARD_BUILD)/null_kernel.elf
+BIN := $(BOARD_BUILD)/null_kernel.bin
+UF2 := $(BOARD_BUILD)/null_kernel.uf2
 BOOT2_OBJ := $(BOARD_BUILD)/boot2.o
 BOOT2_ELF := $(BOARD_BUILD)/boot2.elf
 BOOT2_RAW := $(BOARD_BUILD)/boot2_raw.bin
 BOOT2 := $(BOARD_BUILD)/boot2.bin
-FLASH_BIN := $(BOARD_BUILD)/null_kernel_flash.bin
+FLASH_BIN := $(BOARD_BUILD)/null_kernel.flash.bin
 EXTRA_CFLAGS := -DNULLK_ARCH_RP2040
 EXTRA_C_SRC := $(ARCH_DIR)/usb.c
 else

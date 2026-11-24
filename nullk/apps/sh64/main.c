@@ -266,7 +266,7 @@ static void sh_repaint_line(const char *line, uint32_t len, uint32_t pos,
     uint32_t i;
 
     sh_out("\r", 1u);
-    sh_out("nk) ", 4u);
+    sh_out("( @userlevel ) ", 4u);
     sh_out(line, len);
     if (erase != 0u) {
         sh_out(" ", 1u);

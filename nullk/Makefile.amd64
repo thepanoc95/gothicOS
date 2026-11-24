@@ -32,8 +32,8 @@ HOST_CXXFLAGS := -std=c++17 -Wall -Wextra -Werror -O2 \
                  -Iinclude -Iapps/include -Isecurekernel -Isecurekernel/include \
                  -DNK_ARCH_HOST
 
-KERNEL_ELF := $(OUT)/null_kernel_amd64.elf
-KERNEL_BIN := $(OUT)/null_kernel_amd64.bin
+KERNEL_ELF := $(OUT)/null_kernel.amd64.elf
+KERNEL_BIN := $(OUT)/null_kernel.amd64.bin
 USER_ELF := $(OUT)/init.elf
 INITRD := $(OUT)/initrd.tar
 

@@ -354,7 +354,7 @@ void nk64_main(void)
 
     nk_printk_init(nk64_uart_puts);
     nk_printk_set_level(NK_KERN_INFO);
-    pr_info("null_kernel/AMD64: tiny core, ABI v3, %u KiB RAM\n",
+    pr_info("null_kernel\nOSMemory %u\n",
             (uint32_t)(nk64_boot.mem_total / 1024u));
     pr_info("null_kernel: hhdm=0x%08x%08x kernel_phys=0x%08x%08x\n",
             (uint32_t)(nk64_boot.hhdm >> 32), (uint32_t)nk64_boot.hhdm,
