@@ -599,7 +599,7 @@ void shell_service_entry(void)
     }
     grant_sandbox();
 
-    nk_printf("\n[nksh] null_kernel shell running in ring 3\n");
+    nk_printf("\nnull_kernel: shell: nksh online (ring 3)\n");
     nk_shell64_banner(&shell_ctx);
 
     for (;;) {

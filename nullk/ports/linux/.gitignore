@@ -1,0 +1,6 @@
+*.mod
+*.ko
+*.o
+obj
+modules.order
+Modules*

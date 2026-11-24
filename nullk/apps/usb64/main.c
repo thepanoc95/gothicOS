@@ -151,7 +151,7 @@ static void log_capacity(uint32_t lun, uint32_t blocks, uint32_t block_size)
     uint32_t len = 0;
 
     text[0] = '\0';
-    append_text(text, sizeof(text), &len, "[usb64] LUN ");
+    append_text(text, sizeof(text), &len, "usb64: lun ");
     append_text(text, sizeof(text), &len, nk_utoa_dec(lun, n1, sizeof(n1)));
     append_text(text, sizeof(text), &len, ": ");
     append_text(text, sizeof(text), &len,
@@ -161,7 +161,8 @@ static void log_capacity(uint32_t lun, uint32_t blocks, uint32_t block_size)
                 nk_utoa_dec(block_size, n3, sizeof(n3)));
     append_text(text, sizeof(text), &len, " bytes (NKUSBPRG @ LBA 1)\n");
     (void)nk64_log(NK_KERN_INFO, text, len);
-    nk_printf("[usb64] LUN %u: %u x %u bytes\n", lun, blocks, block_size);
+    nk_printf("usb64: lun %u: %u blocks x %u bytes\n",
+              lun, blocks, block_size);
 }
 
 static void probe_capacity(uint32_t lun)
@@ -186,7 +187,7 @@ static void probe_capacity(uint32_t lun)
 
     if (nk_uas_exec(&bridge, &cbw, data, sizeof(data), &csw) != 0 ||
         csw.status != NK_BOT_STATUS_OK) {
-        nk_printf("[usb64] READ_CAPACITY_10 failed on LUN %u (status %u)\n",
+        nk_printf("usb64: read-capacity failed on lun %u (status %u)\n",
                   lun, csw.status);
         return;
     }
@@ -207,7 +208,7 @@ void usb_service_entry(void)
                             NK_USB64_BLOCK_SIZE, RAM_BLOCKS_PER_LUN);
     nk_uas_bridge_init(&bridge, NULL, nk_ramdisk_read, nk_ramdisk_write,
                        nk_ramdisk_info);
-    nk_printf("[usb64] USB-as-SATA bridge online (%u LUNs, %u bytes each)\n",
+    nk_printf("usb64: bridge: online (%u LUNs, %u bytes each)\n",
               (uint32_t)NK_USB64_LUN_COUNT, (uint32_t)NK_USB64_LUN_BYTES);
 
     for (;;) {

@@ -276,7 +276,7 @@ __attribute__((weak)) void nk64_entry(void)
     nk_printk_init(nk64_uart_puts);
 
     if (!LIMINE_BASE_REVISION_SUPPORTED(limine_base_revision)) {
-        nk64_panic("limine base revision unsupported");
+        nk64_panic("boot protocol: unsupported base revision");
     }
 
     hhdmr = limine_hhdm_request.response;
@@ -285,7 +285,7 @@ __attribute__((weak)) void nk64_entry(void)
     }
     mmap = limine_memmap_request.response;
     if (mmap == (struct limine_memmap_response *)0) {
-        nk64_panic("limine memmap response missing");
+        nk64_panic("boot protocol: memmap response missing");
     }
 
     nk64_boot.hhdm = hhdm;
@@ -354,14 +354,20 @@ void nk64_main(void)
 
     nk_printk_init(nk64_uart_puts);
     nk_printk_set_level(NK_KERN_INFO);
-    pr_info("null_kernel\nOSMemory %u\n",
+    pr_info("boot: console online\n");
+    pr_info("boot: ABI v3 AMD64 image\n");
+    pr_info("boot: memory: %u KiB usable\n",
             (uint32_t)(nk64_boot.mem_total / 1024u));
-    pr_info("null_kernel: hhdm=0x%08x%08x kernel_phys=0x%08x%08x\n",
+    pr_info("boot: hhdm=0x%08x%08x kernel_phys=0x%08x%08x\n",
             (uint32_t)(nk64_boot.hhdm >> 32), (uint32_t)nk64_boot.hhdm,
             (uint32_t)(nk64_boot.kernel_phys >> 32),
             (uint32_t)nk64_boot.kernel_phys);
+    pr_info("boot: tasks and interrupts: ready\n");
+    pr_info("boot: framebuffer: %s\n",
+            (nk64_boot.fb.present != 0u) ? "claimed" : "none");
 
     nk_vfs_init();
+    pr_info("vfs: initialize ... done\n");
     nk64_runlevel = NK64_RUNLEVEL_DRIVERS;
 
     mod = nk64_find_initrd();
@@ -371,14 +377,15 @@ void nk64_main(void)
                             ? 0xffffffffu : (uint32_t)mod->size;
         nk_status_t st;
 
-        pr_info("null_kernel: initrd module size=%u bytes\n", size);
+        pr_info("initrd: module: %u bytes\n", size);
         st = nk_vfs_load_tar((const uint8_t *)addr, size);
         if (st != NK_STATUS_OK) {
-            pr_warn("null_kernel: initrd load failed (status %u)\n",
-                    (uint32_t)st);
+            pr_warn("initrd: load failed (status %u)\n", (uint32_t)st);
+        } else {
+            pr_info("initrd: load ... done\n");
         }
     } else {
-        pr_warn("null_kernel: no initrd module found\n");
+        pr_warn("initrd: no module found\n");
     }
 
     nk64_zero(&acpi, (uint32_t)sizeof(acpi));
@@ -393,7 +400,7 @@ void nk64_main(void)
             nk64_acpi_addr);
 
         if (rc == 0) {
-            pr_info("null_kernel: ACPI cpus=%u lapic=0x%08x%08x "
+            pr_info("acpi: cpus=%u lapic=0x%08x%08x "
                     "ioapic=0x%08x%08x gsi_base=%u\n",
                     (uint32_t)acpi.cpu_count,
                     (uint32_t)(acpi.lapic_addr >> 32),
@@ -402,7 +409,7 @@ void nk64_main(void)
                     (uint32_t)acpi.ioapic_addr,
                     (uint32_t)acpi.ioapic_gsi_base);
         } else {
-            pr_warn("null_kernel: ACPI parse failed (%d)\n", rc);
+            pr_warn("acpi: parse failed (%d)\n", rc);
         }
     }
 
@@ -413,22 +420,23 @@ void nk64_main(void)
                                           &init_len);
 
         if (st == NK_STATUS_OK && init_len != 0u) {
+            pr_info("init: image @/data/system/init.elf: %u bytes\n",
+                    init_len);
             task_id = nk64_task_create_elf(nk64_elf_buffer, init_len,
                                             "init");
         } else {
-            pr_warn("null_kernel: init.elf unavailable (status %u)\n",
-                    (uint32_t)st);
+            pr_warn("init: image unavailable (status %u)\n", (uint32_t)st);
             task_id = -1;
         }
     }
 
     if (task_id >= 0) {
-        pr_info("null_kernel: starting userspace task %d\n", task_id);
+        pr_info("init: start ... done (task %d)\n", task_id);
         nk64_runlevel = NK64_RUNLEVEL_READY;
         nk64_task_start_first();   /* noreturn */
     }
 
-    pr_warn("null_kernel: entering fallback shell\n");
+    pr_warn("boot: entering fallback shell\n");
     nk64_runlevel = NK64_RUNLEVEL_SHELL;
     nk64_fallback_shell();         /* noreturn */
 }
@@ -436,8 +444,7 @@ void nk64_main(void)
 void nk64_panic(const char *msg)
 {
     nk64_irq_disable();
-    pr_emerg("null_kernel PANIC: %s\n",
-             (msg != (const char *)0) ? msg : "(null)");
+    pr_emerg("%s\n", (msg != (const char *)0) ? msg : "(null)");
     for (;;) {
         nk64_hlt();
     }

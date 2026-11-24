@@ -1,0 +1,14 @@
+{
+	"${schema}": "@/data/system/configs/System.schema.json",
+	"@bundle": {
+		"name": "SystemKit",
+		"bundleType": "framework;lib",
+		"bundleExports": "Resources/exports/exports.json",
+		"@Bundlelang": {
+			"ansi-c": "Resources/cinclude/bentry.inf.c",
+			"cpp": "Resources/cinclude/bentry.inf.cpp",
+			"uts": "Resources/Entry.ts"
+		},
+		"version": "@System/Identity/version/bundles"
+	}
+}

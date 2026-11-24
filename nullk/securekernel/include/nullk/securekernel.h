@@ -75,7 +75,7 @@ int nk_securekernel_sign(uint8_t *image, uint32_t size, uint32_t cap,
                          uint32_t *out_size);
 
 /*
- * Type-enforcement policy (the SELinux-like part).
+ * Type-enforcement policy.
  *
  * Subjects are the labelled ring 3 tasks; objects are files labelled by the
  * longest matching path prefix. A rule grants (or explicitly denies) a set of

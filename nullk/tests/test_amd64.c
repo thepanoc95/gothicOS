@@ -94,6 +94,8 @@ static void capture_sink(const char *text, uint32_t len)
 
 static void test_printk(void)
 {
+    static const char expected_error[] = "null_kernel: error: bad 7\n";
+    static const char expected_info[] = "null_kernel: ready\n";
     char buf[128];
     char tiny[4];
     int n;
@@ -119,7 +121,15 @@ static void test_printk(void)
     nk_printk_set_level(NK_KERN_INFO);
     log_reset();
     n = nk_printk(NK_KERN_ERR, "bad %d", 7);
-    CHECK("printk level emit", (n == 9) && (strcmp(g_log, "<3>bad 7\n") == 0));
+    CHECK("printk level emit",
+          (n == (int)(sizeof(expected_error) - 1u)) &&
+          (strcmp(g_log, expected_error) == 0));
+
+    log_reset();
+    n = nk_printk(NK_KERN_INFO, "ready\n");
+    CHECK("printk single newline",
+          (n == (int)(sizeof(expected_info) - 1u)) &&
+          (strcmp(g_log, expected_info) == 0));
 
     log_reset();
     n = nk_printk(NK_KERN_DEBUG, "quiet");

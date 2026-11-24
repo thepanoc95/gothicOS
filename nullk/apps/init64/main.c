@@ -36,17 +36,16 @@ static void report_vfs(void)
         rc = nk64_stat(vfs_checks[i], &st);
         if (rc == 0 && (st.type == NK_VFS_DIR || st.type == NK_VFS_FILE)) {
             if (st.type == NK_VFS_DIR) {
-                nk_printf("[init64] @/ entry present: %s (dir)\n",
-                          vfs_checks[i]);
+                nk_printf("init64: vfs: node %s: dir\n", vfs_checks[i]);
             } else {
-                nk_printf("[init64] @/ entry present: %s (%u bytes)\n",
+                nk_printf("init64: vfs: node %s: %u bytes\n",
                           vfs_checks[i], st.size);
             }
-            log_line(NK_KERN_INFO, "[init64] VFS node present");
+            log_line(NK_KERN_INFO, "init64: vfs: node present");
         } else {
-            nk_printf("[init64] @/ entry missing: %s (status %u)\n",
+            nk_printf("init64: vfs: node %s missing (status %u)\n",
                       vfs_checks[i], rc);
-            log_line(NK_KERN_WARN, "[init64] VFS node missing");
+            log_line(NK_KERN_WARN, "init64: vfs: node missing");
         }
     }
 }
@@ -59,16 +58,16 @@ void _start(void)
     uint64_t shell_id;
     uint32_t rc;
 
-    nk_printf("\nnull_kernel: userspace init (ABI v3, ring 3)\n");
+    nk_printf("\ninit64: boot: userspace init (ABI v3, ring 3)\n");
     nk_memset(&info, 0, sizeof(info));
     rc = nk64_getinfo(&info);
     if (rc != 0) {
-        nk_printf("[init64] GETINFO failed (status %u)\n", rc);
-        log_line(NK_KERN_ERR, "[init64] GETINFO failed");
+        nk_printf("init64: getinfo failed (status %u)\n", rc);
+        log_line(NK_KERN_ERR, "init64: getinfo failed");
         nk64_exit(1);
     }
 
-    nk_printf("[init64] ABI %u.%u magic=0x%x runlevel=%u tick_hz=%u "
+    nk_printf("init64: abi: %u.%u magic=0x%x runlevel=%u tick_hz=%u "
               "tasks=%u mem=%u KiB\n",
               (info.abi_version >> 16) & 0xffu,
               (info.abi_version >> 8) & 0xffu,
@@ -77,8 +76,8 @@ void _start(void)
 
     if (info.magic != NULLK64_ABI_MAGIC ||
         info.abi_version != NULLK64_ABI_VERSION) {
-        nk_printf("[init64] ABI mismatch, halting\n");
-        log_line(NK_KERN_ERR, "[init64] ABI mismatch");
+        nk_printf("init64: abi mismatch; halting\n");
+        log_line(NK_KERN_ERR, "init64: abi mismatch");
         nk64_exit(2);
     }
 
@@ -89,30 +88,33 @@ void _start(void)
     secure_id = nk64_task_create("SecureKernel", securekernel_service_entry,
                                  0, 0);
     if (secure_id == 0) {
-        nk_printf("[init64] failed to start SecureKernel service\n");
-        log_line(NK_KERN_ERR, "[init64] SecureKernel task create failed");
+        nk_printf("init64: securekernel: start failed\n");
+        log_line(NK_KERN_ERR, "init64: securekernel: start failed");
         nk64_exit(3);
     }
-    nk_printf("[init64] SecureKernel task id=%u\n", (uint32_t)secure_id);
+    nk_printf("init64: securekernel: start ... done (task %u)\n",
+              (uint32_t)secure_id);
 
     usb_id = nk64_task_create("usb64", usb_service_entry, 0, 0);
     if (usb_id == 0) {
-        nk_printf("[init64] failed to start usb64 service\n");
-        log_line(NK_KERN_ERR, "[init64] usb64 task create failed");
+        nk_printf("init64: usb64: start failed\n");
+        log_line(NK_KERN_ERR, "init64: usb64: start failed");
         nk64_exit(4);
     }
-    nk_printf("[init64] usb64 task id=%u\n", (uint32_t)usb_id);
+    nk_printf("init64: usb64: start ... done (task %u)\n",
+              (uint32_t)usb_id);
 
     shell_id = nk64_task_create("nksh", shell_service_entry, 0, 0);
     if (shell_id == 0) {
-        nk_printf("[init64] failed to start nksh service\n");
-        log_line(NK_KERN_ERR, "[init64] nksh task create failed");
+        nk_printf("init64: nksh: start failed\n");
+        log_line(NK_KERN_ERR, "init64: nksh: start failed");
         nk64_exit(5);
     }
-    nk_printf("[init64] nksh task id=%u\n", (uint32_t)shell_id);
+    nk_printf("init64: nksh: start ... done (task %u)\n",
+              (uint32_t)shell_id);
 
-    nk_printf("[init64] userspace services online; no desktop started\n");
-    log_line(NK_KERN_INFO, "[init64] userspace services online; no desktop started");
+    nk_printf("init64: services: online\n");
+    log_line(NK_KERN_INFO, "init64: services: online");
 
     /* Monitor forever; never fall through out of _start. */
     for (;;) {

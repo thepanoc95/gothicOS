@@ -259,7 +259,7 @@ void nk64_fallback_shell(void)
     /* Print the translated sandbox window once; the shared engine prints
      * command output as offsets inside this window. */
     nk_printk(NK_KERN_INFO,
-              "nk: sandbox window 0x%08x%08x + offset (size %u KiB)\n",
+              "sandbox: window 0x%08x%08x + offset (size %u KiB)\n",
               (uint32_t)(NK64_SANDBOX_BASE >> 32),
               (uint32_t)NK64_SANDBOX_BASE,
               (uint32_t)(NK64_SANDBOX_SIZE / 1024u));

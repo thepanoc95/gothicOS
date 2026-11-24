@@ -141,7 +141,7 @@ decision and reason. The service drains it every 50 ticks and writes each
 entry to the kernel log:
 
 ```
-[securekernel] DENY shell_t/system_t op=exec: blocked by policy: shell_t/system_t op=exec
+null_kernel: securekernel: audit: DENY shell_t/system_t op=exec: blocked by policy: shell_t/system_t op=exec
 ```
 
 Host callers can use `nk_securekernel_audit_count()`,

@@ -1,7 +1,7 @@
 /*
  * SecureKernel type-enforcement policy and audit engine.
  *
- * A lightweight SELinux-style model for ring 3: tasks present a subject label,
+ * A lightweight type-enforcement model for ring 3: tasks present a subject label,
  * files are labelled by the longest matching path prefix, and rules grant or
  * deny operations between subject and object contexts. Unmatched requests fail
  * closed (default DENY). All storage is static and bounded; no libc, heap or
@@ -488,7 +488,7 @@ uint32_t audit_format(const nk_secure_audit_t *entry, char *out, uint32_t cap)
     if (entry == 0 || out == 0 || cap == 0u) {
         return 0u;
     }
-    str_copy(detail, (uint32_t)sizeof(detail), "[securekernel] ");
+    str_copy(detail, (uint32_t)sizeof(detail), "securekernel: audit: ");
     str_append(detail, (uint32_t)sizeof(detail),
                entry->decision == (uint32_t)NK_SECURE_DECISION_DENY
                    ? "DENY " : "ALLOW ");

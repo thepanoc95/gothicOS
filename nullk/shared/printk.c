@@ -37,6 +37,27 @@ static void nk_printk_null_sink(const char *text, uint32_t len)
 static nk_print_sink_t g_sink = nk_printk_null_sink;
 static int g_level = NK_KERN_INFO;
 
+/* Boot and service lines share one null_kernel owner prefix. */
+static const char *nk_printk_prefix(int severity)
+{
+    switch (severity) {
+    case NK_KERN_EMERG:
+        return "null_kernel: panic: ";
+    case NK_KERN_ALERT:
+        return "null_kernel: alert: ";
+    case NK_KERN_CRIT:
+        return "null_kernel: fatal: ";
+    case NK_KERN_ERR:
+        return "null_kernel: error: ";
+    case NK_KERN_WARN:
+        return "null_kernel: warning: ";
+    case NK_KERN_NOTICE:
+        return "null_kernel: notice: ";
+    default:
+        return "null_kernel: ";
+    }
+}
+
 void nk_printk_init(nk_print_sink_t sink)
 {
     g_sink = (sink != (nk_print_sink_t)0) ? sink : nk_printk_null_sink;
@@ -412,14 +433,13 @@ int nk_snprintf(char *buf, uint32_t cap, const char *fmt, ...)
 int nk_printk(int level, const char *fmt, ...)
 {
     char line[NK_PRINTK_LINE_MAX];
-    char tag[16];
+    const char *prefix;
     uint32_t pos = 0u;
-    int tag_len;
     int body_len;
     int severity = level;
     va_list ap;
 
-    /* Linux-style severity filter: smaller numbers are more urgent. */
+    /* Smaller numbers are more urgent. */
     if (level > g_level) {
         return 0;
     }
@@ -430,17 +450,9 @@ int nk_printk(int level, const char *fmt, ...)
         severity = NK_KERN_DEBUG;
     }
 
-    tag_len = nk_snprintf(tag, (uint32_t)sizeof(tag), "<%d>", severity);
-    if (tag_len < 0) {
-        tag_len = 0;
-    }
-    {
-        uint32_t i;
-
-        for (i = 0u; (i < (uint32_t)tag_len) &&
-                     (pos < (NK_PRINTK_LINE_MAX - 2u)); i++) {
-            line[pos++] = tag[i];
-        }
+    prefix = nk_printk_prefix(severity);
+    while (*prefix != '\0' && pos < (NK_PRINTK_LINE_MAX - 2u)) {
+        line[pos++] = *prefix++;
     }
 
     va_start(ap, fmt);
@@ -454,7 +466,10 @@ int nk_printk(int level, const char *fmt, ...)
     if (pos > (NK_PRINTK_LINE_MAX - 2u)) {
         pos = NK_PRINTK_LINE_MAX - 2u;
     }
-    line[pos++] = '\n';
+    /* Callers may already end a line with '\n'; never emit a blank line. */
+    if (pos == 0u || line[pos - 1u] != '\n') {
+        line[pos++] = '\n';
+    }
     line[pos] = '\0';
 
     g_sink(line, pos);

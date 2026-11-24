@@ -21,11 +21,11 @@ uint32_t nk64_yield(void);
 extern "C" void securekernel_service_entry(void)
 {
     static const char online[] =
-        "[securekernel] C++ userspace integrity layer online\n";
+        "securekernel: integrity layer online\n";
     static const char policy_ok[] =
-        "[securekernel] policy v2 loaded: type enforcement, default-deny\n";
+        "securekernel: policy: v2 loaded (type enforcement, default-deny)\n";
     static const char policy_fail[] =
-        "[securekernel] policy load failed; exec is fail-closed\n";
+        "securekernel: policy: load failed; exec is fail-closed\n";
 
     nk_secure_policy_t policy;
 

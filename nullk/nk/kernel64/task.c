@@ -298,11 +298,11 @@ int nk64_task_create_elf(const uint8_t *elf, uint32_t size, const char *name)
     }
     cr3 = nk64_vmm_create_space();
     if (cr3 == 0u) {
-        pr_warn("nk64 task: create_space failed\n");
+        pr_warn("task: create_space failed\n");
         return -1;
     }
     if (nk64_load_user_elf(elf, size, cr3) != NK_STATUS_OK) {
-        pr_warn("nk64 task: load_user_elf failed\n");
+        pr_warn("task: load_user_elf failed\n");
         return -1;
     }
 
@@ -310,7 +310,7 @@ int nk64_task_create_elf(const uint8_t *elf, uint32_t size, const char *name)
     if (nk64_vmm_alloc_user_pages(cr3, NK64_USER_HEAP, NK64_HEAP_BYTES) == 0u ||
         nk64_vmm_alloc_user_pages(cr3, NK64_SANDBOX_BASE,
                                   NK64_SANDBOX_BYTES) == 0u) {
-        pr_warn("nk64 task: heap/sandbox alloc failed\n");
+        pr_warn("task: heap/sandbox alloc failed\n");
         return -1;
     }
 
@@ -327,7 +327,7 @@ int nk64_task_create_elf(const uint8_t *elf, uint32_t size, const char *name)
             for (j = 0u; j < i; j++) {
                 nk64_pmm_free_frame(stack_phys[j]);
             }
-            pr_warn("nk64 task: stack alloc failed\n");
+            pr_warn("task: stack alloc failed\n");
             return -1;
         }
         stack_phys[i] = phys;
@@ -431,7 +431,7 @@ int nk64_task_create_user(void (*entry)(void), const char *name)
             for (j = 0u; j < i; j++) {
                 nk64_pmm_free_frame(stack_phys[j]);
             }
-            pr_warn("nk64 task: stack alloc failed\n");
+            pr_warn("task: stack alloc failed\n");
             return -1;
         }
         stack_phys[i] = phys;

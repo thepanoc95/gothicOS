@@ -133,14 +133,14 @@ void nk64_entry(void)
      */
     if (limine_base_revision[0].id[2] != 0u &&
         limine_base_revision[0].id[0] != 0u) {
-        nk64_panic("limine: unsupported base revision");
+        nk64_panic("boot protocol: unsupported base revision");
     }
 
     if (limine_hhdm_request.response == NULL ||
         limine_memmap_request.response == NULL ||
         limine_module_request.response == NULL ||
         limine_kernel_address_request.response == NULL) {
-        nk64_panic("limine: required response missing");
+        nk64_panic("boot protocol: required response missing");
     }
 
     nk64_boot.hhdm = limine_hhdm_request.response->offset;

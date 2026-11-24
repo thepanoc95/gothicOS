@@ -11,7 +11,7 @@
 #include <stdarg.h>
 #include <stdint.h>
 
-/* Linux-compatible severity values so existing habits/map files make sense. */
+/* Severity values ordered from most to least urgent. */
 enum {
     NK_KERN_EMERG = 0,
     NK_KERN_ALERT = 1,
