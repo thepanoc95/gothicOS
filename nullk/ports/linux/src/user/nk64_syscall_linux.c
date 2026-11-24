@@ -15,6 +15,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/fb.h>
+#include <linux/input.h>
 #include <poll.h>
 #include <pthread.h>
 #include <sched.h>
@@ -644,6 +645,170 @@ static uint32_t nk64_linux_fbdev_probe(void)
     return NK_STATUS_OK;
 }
 
+/*
+ * ABI v3 input on Linux: read evdev and produce nk64_input_event_t records so
+ * an unmodified ring-3 task (the LVGL desktop, InterfaceKit) receives the same
+ * events it would get from the PS/2 driver on bare metal.
+ */
+#define NK64_LINUX_MAX_INPUTS 4
+
+static int g_input_fds[NK64_LINUX_MAX_INPUTS];
+static int g_input_count = -1;
+static int32_t g_input_x;
+static int32_t g_input_y;
+static uint32_t g_input_buttons;
+static uint32_t g_input_mods;
+
+static uint32_t nk64_linux_key_char(uint16_t code, uint32_t shifted)
+{
+    static const char letters[26] = "abcdefghijklmnopqrstuvwxyz";
+    static const char digits[10] = "1234567890";
+
+    if (code >= KEY_A && code <= KEY_Z) {
+        char c = letters[code - KEY_A];
+        return (uint32_t)(shifted ? (char)(c - 'a' + 'A') : c);
+    }
+    if (code >= KEY_1 && code <= KEY_9) {
+        return (uint32_t)digits[code - KEY_1];
+    }
+    if (code == KEY_0) return (uint32_t)'0';
+    if (code == KEY_SPACE) return (uint32_t)' ';
+    switch (code) {
+    case KEY_TAB: return 0x09u;
+    case KEY_ENTER: return 0x0au;
+    case KEY_ESC: return 0x1bu;
+    case KEY_BACKSPACE: return 0x08u;
+    case KEY_UP: return NK64_KEY_UP;
+    case KEY_DOWN: return NK64_KEY_DOWN;
+    case KEY_LEFT: return NK64_KEY_LEFT;
+    case KEY_RIGHT: return NK64_KEY_RIGHT;
+    case KEY_HOME: return NK64_KEY_HOME;
+    case KEY_END: return NK64_KEY_END;
+    case KEY_PAGEUP: return NK64_KEY_PAGEUP;
+    case KEY_PAGEDOWN: return NK64_KEY_PAGEDOWN;
+    case KEY_INSERT: return NK64_KEY_INSERT;
+    case KEY_DELETE: return NK64_KEY_DELETE;
+    default: return 0u;
+    }
+}
+
+static void nk64_linux_input_probe(void)
+{
+    DIR *dir;
+    struct dirent *ent;
+
+    if (g_input_count >= 0) {
+        return;
+    }
+    g_input_count = 0;
+    dir = opendir("/dev/input");
+    if (dir == NULL) {
+        return;
+    }
+    while ((ent = readdir(dir)) != NULL &&
+           g_input_count < NK64_LINUX_MAX_INPUTS) {
+        char path[288];
+        int fd;
+
+        if (strncmp(ent->d_name, "event", 5) != 0) {
+            continue;
+        }
+        snprintf(path, sizeof(path), "/dev/input/%s", ent->d_name);
+        fd = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+        if (fd < 0) {
+            continue;
+        }
+        g_input_fds[g_input_count++] = fd;
+    }
+    closedir(dir);
+}
+
+static void nk64_linux_input_clamp(void)
+{
+    int32_t max_x = 1280;
+    int32_t max_y = 800;
+
+    if (g_fb_ready != 0 && g_fb_info.width > 0u && g_fb_info.height > 0u) {
+        max_x = (int32_t)g_fb_info.width;
+        max_y = (int32_t)g_fb_info.height;
+    }
+    if (g_input_x < 0) g_input_x = 0;
+    if (g_input_y < 0) g_input_y = 0;
+    if (g_input_x >= max_x) g_input_x = max_x - 1;
+    if (g_input_y >= max_y) g_input_y = max_y - 1;
+}
+
+static uint64_t nk64_linux_input_read(void *out, uint32_t max)
+{
+    nk64_input_event_t *events = (nk64_input_event_t *)out;
+    uint32_t count = 0u;
+
+    if (out == NULL || max == 0u) {
+        return 0u;
+    }
+    nk64_linux_input_probe();
+
+    for (int i = 0; i < g_input_count && count < max; i++) {
+        for (;;) {
+            struct input_event ev;
+
+            if (read(g_input_fds[i], &ev, sizeof(ev)) != (ssize_t)sizeof(ev)) {
+                break;
+            }
+            if (ev.type == EV_REL) {
+                if (ev.code == REL_X) g_input_x += ev.value;
+                if (ev.code == REL_Y) g_input_y += ev.value;
+                nk64_linux_input_clamp();
+                if (count < max) {
+                    memset(&events[count], 0, sizeof(events[count]));
+                    events[count].type = NK64_INPUT_MOUSE_MOVE;
+                    events[count].x = g_input_x;
+                    events[count].y = g_input_y;
+                    events[count].dx = ev.value;
+                    events[count].buttons = g_input_buttons;
+                    count++;
+                }
+            } else if (ev.type == EV_KEY) {
+                if (ev.code == BTN_LEFT || ev.code == BTN_RIGHT ||
+                    ev.code == BTN_MIDDLE) {
+                    uint32_t bit = (ev.code == BTN_LEFT) ? NK64_MOUSE_LEFT
+                                 : (ev.code == BTN_RIGHT) ? NK64_MOUSE_RIGHT
+                                                          : NK64_MOUSE_MIDDLE;
+                    if (ev.value != 0) g_input_buttons |= bit;
+                    else g_input_buttons &= ~bit;
+                    if (count < max) {
+                        memset(&events[count], 0, sizeof(events[count]));
+                        events[count].type = (ev.value != 0) ? NK64_INPUT_MOUSE_DOWN
+                                                             : NK64_INPUT_MOUSE_UP;
+                        events[count].x = g_input_x;
+                        events[count].y = g_input_y;
+                        events[count].buttons = g_input_buttons;
+                        count++;
+                    }
+                } else if (ev.code == KEY_LEFTSHIFT || ev.code == KEY_RIGHTSHIFT) {
+                    if (ev.value != 0) g_input_mods |= NK64_MOD_SHIFT;
+                    else g_input_mods &= ~NK64_MOD_SHIFT;
+                } else if (ev.value != 2 && count < max) {
+                    uint32_t key = nk64_linux_key_char((uint16_t)ev.code,
+                                                       (g_input_mods & NK64_MOD_SHIFT) != 0u);
+                    if (key != 0u) {
+                        memset(&events[count], 0, sizeof(events[count]));
+                        events[count].type = (ev.value != 0) ? NK64_INPUT_KEY_DOWN
+                                                             : NK64_INPUT_KEY_UP;
+                        events[count].code = key;
+                        events[count].modifiers = g_input_mods;
+                        count++;
+                    }
+                }
+            }
+            if (count >= max) {
+                break;
+            }
+        }
+    }
+    return (uint64_t)count;
+}
+
 /* virtio-gpu does not repaint the host scanout from plain CPU writes to a
  * mapped dumb buffer. Dirty the FB periodically so InterfaceKit's pixels
  * become visible without changing the shared userspace compositor. */
@@ -1098,6 +1263,7 @@ uint64_t nk64_syscall(uint64_t n, uint64_t a0, uint64_t a1, uint64_t a2,
     case NK64_SC_USB_WRITE:
     case NK64_SC_USB_REGISTER:
     case NK64_SC_INPUT_READ:
+        return nk64_linux_input_read((void *)(uintptr_t)a0, (uint32_t)a1);
     case NK64_SC_IRQ_BIND:
     case NK64_SC_IPC_OPEN:
     case NK64_SC_IPC_SEND:

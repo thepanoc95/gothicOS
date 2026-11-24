@@ -26,7 +26,10 @@ COMMON_DEFS := -D_start=nk64_amd64_init_start \
                -DNULLK_LIBNK64_EXTERNAL_SYSCALL \
                -DNULLK_LINUX_PORT
 
-USER_CFLAGS := -std=c11 -Wall -Wextra -Werror -O2 -g $(COMMON_DEFS) $(INCLUDES)
+# Recursive: LVGL_DIR is resolved by the fetch step defined below.
+USER_CFLAGS = -std=c11 -Wall -Wextra -Werror -O2 -g $(COMMON_DEFS) $(INCLUDES) \
+              -I$(NULLK_ROOT)/shared/lvgl_port -DLV_CONF_INCLUDE_SIMPLE \
+              -isystem $(LVGL_DIR)
 USER_CXXFLAGS := -std=c++17 -Wall -Wextra -Werror -O2 -g \
                  -fno-exceptions -fno-rtti $(COMMON_DEFS) $(INCLUDES)
 LINK_FLAGS := -static -pthread -no-pie \
@@ -37,7 +40,14 @@ PORT_C_SRC := src/user/init_pid1.c src/user/nk64_syscall_linux.c \
               src/user/fb_gfx.c src/user/fb_gui.c
 PORT_C_OBJ := $(patsubst src/%.c,$(OBJ)/port/%.o,$(PORT_C_SRC))
 
+LVGL_DIR := $(shell $(NULLK_ROOT)/tools/fetch_lvgl.sh 2>/dev/null)
+LVGL_SRC := $(shell find $(LVGL_DIR)/src -name '*.c' 2>/dev/null)
+LVGL_OBJ := $(patsubst $(LVGL_DIR)/%.c,$(OBJ)/lvgl/%.o,$(LVGL_SRC))
+LVGL_CFLAGS := -std=c11 -O2 -w -fPIC -DLV_CONF_INCLUDE_SIMPLE \
+               -I$(NULLK_ROOT)/shared/lvgl_port -I$(LVGL_DIR)
+
 NULLK_C_SRC := apps/init64/main.c \
+               apps/lvgl64/main.c \
                apps/interfacekit/main.c \
                apps/interfacekit_demo/main.c \
                apps/sh64/main.c \
@@ -48,7 +58,10 @@ NULLK_C_SRC := apps/init64/main.c \
                shared/usb_as_sata.c \
                shared/printk.c \
                shared/interfacekit_gfx.c \
-               shared/interfacekit_widgets.c
+               shared/interfacekit_widgets.c \
+               shared/lvgl_port/lvgl_port.c \
+               shared/lvgl_port/lvgl_terminal.c \
+               shared/lvgl_port/lvgl_dashboard.c
 NULLK_C_OBJ := $(patsubst $(NULLK_ROOT)/%.c,$(OBJ)/%.o,$(addprefix $(NULLK_ROOT)/,$(NULLK_C_SRC)))
 
 NULLK_CXX_SRC := securekernel/OSSecureAPI.cpp \
@@ -87,7 +100,11 @@ $(OBJ)/%.o: $(NULLK_ROOT)/%.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) $(USER_CXXFLAGS) -c $< -o $@
 
-$(USER_ELF): $(PORT_C_OBJ) $(NULLK_C_OBJ) $(NULLK_CXX_OBJ)
+$(OBJ)/lvgl/%.o: $(LVGL_DIR)/%.c
+	@mkdir -p $(dir $@)
+	$(CC) $(LVGL_CFLAGS) -c $< -o $@
+
+$(USER_ELF): $(PORT_C_OBJ) $(NULLK_C_OBJ) $(NULLK_CXX_OBJ) $(LVGL_OBJ)
 	@mkdir -p $(dir $@)
 	$(CXX) $(LINK_FLAGS) -o $@ $^
 

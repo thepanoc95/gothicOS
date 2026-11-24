@@ -10,7 +10,9 @@
 
 #include <stddef.h>
 
-#define NK_VFS_POOL_SIZE (1024u * 1024u)
+/* The AMD64 test initrd ships the same userspace ELF as init, shell and
+ * USB payload, so the pool must hold a few megabytes. */
+#define NK_VFS_POOL_SIZE (4u * 1024u * 1024u)
 #define NK_VFS_NO_NODE   0xffffffffu
 
 typedef struct {

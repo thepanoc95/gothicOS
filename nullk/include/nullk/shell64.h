@@ -33,6 +33,8 @@ typedef struct {
     nk_status_t (*exec)(const char *path);
     /* Optional gothicOS userland service hook behind `ui start`. */
     nk_status_t (*ui_start)(void);
+    /* Optional LVGL desktop hook behind `ui lvgl`; claims the framebuffer. */
+    nk_status_t (*ui_lvgl)(void);
     nk_status_t (*usb_read)(uint32_t lun, uint64_t lba, uint32_t count,
                             void *buf);
     /* Optional framebuffer GUI engine behind `gui ...`; receives one of the
