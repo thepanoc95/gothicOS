@@ -15,14 +15,6 @@
 #define NK_SHELL_LINE_MAX      256u
 #define NK_SHELL_HISTORY_MAX   16u
 
-/* Mirrors the framebuffer console's NKFB_GUI_* requests. The shared engine must
- * not include a port header, so it passes plain numbers through ctx->gui. */
-#define NK_SHELL_GUI_DEMO       0
-#define NK_SHELL_GUI_CLOSE      1
-#define NK_SHELL_GUI_PANEL_ON   2
-#define NK_SHELL_GUI_PANEL_OFF  3
-#define NK_SHELL_GUI_REFRESH    4
-
 typedef struct {
     /* Filesystem operations, supplied by the host of the shell. */
     nk_status_t (*stat)(const char *path, nk_vfs_stat_t *out);
@@ -37,9 +29,6 @@ typedef struct {
     nk_status_t (*ui_lvgl)(void);
     nk_status_t (*usb_read)(uint32_t lun, uint64_t lba, uint32_t count,
                             void *buf);
-    /* Optional framebuffer GUI engine behind `gui ...`; receives one of the
-     * NK_SHELL_GUI_* requests. */
-    nk_status_t (*gui)(uint32_t command);
     /* Optional visible-console clear for `clear`; otherwise blank lines. */
     void (*clear)(void);
 

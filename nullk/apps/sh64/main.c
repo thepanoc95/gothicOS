@@ -17,13 +17,6 @@
 #define SH_READ_CHUNK 2048u
 #define SH_POLL_SPINS 2048u
 
-/* The framebuffer console lives in the Linux port. The AMD64 build leaves
- * these weak references unresolved, so `gui`/`clear` degrade gracefully. */
-#if defined(NULLK_LINUX_PORT)
-extern int nk64_fb_console_gui(int command) __attribute__((weak));
-extern void nk64_fb_console_clear(void) __attribute__((weak));
-#endif
-
 static nk_shell64_ctx_t shell_ctx;
 static uint8_t g_exec_image[NK_SECUREKERNEL_MAX_IMAGE];
 static uint32_t g_ui_started;
@@ -284,7 +277,7 @@ static void sh_repaint_line(const char *line, uint32_t len, uint32_t pos,
     uint32_t i;
 
     sh_out("\r", 1u);
-    sh_out("( @userlevel ) ", 4u);
+    sh_out("@> ", 4u);
     sh_out(line, len);
     if (erase != 0u) {
         sh_out(" ", 1u);
@@ -372,12 +365,11 @@ static void sh_complete_command(char *line, uint32_t *len, uint32_t *pos,
 static void sh_clear_console(void)
 {
 #if defined(NULLK_LINUX_PORT)
-    if (nk64_fb_console_clear != NULL) {
-        nk64_fb_console_clear();
-        return;
-    }
-#endif
+    /* The console is a real tty now; let the terminal emulator clear it. */
+    sh_out("\033[H\033[2J", 7u);
+#else
     sh_out("\n\n\n\n\n\n\n\n", 8u);
+#endif
 }
 
 static void read_line(char *line, uint32_t cap)
@@ -574,18 +566,6 @@ static void read_line(char *line, uint32_t cap)
     }
 }
 
-static nk_status_t sh_gui(uint32_t command)
-{
-#if defined(NULLK_LINUX_PORT)
-    if (nk64_fb_console_gui != NULL && nk64_fb_console_gui((int)command) == 0) {
-        return NK_STATUS_OK;
-    }
-#else
-    (void)command;
-#endif
-    return NK_STATUS_UNSUPPORTED;
-}
-
 static void sh_clear(void)
 {
     sh_clear_console();
@@ -605,7 +585,6 @@ void shell_service_entry(void)
     shell_ctx.ui_start = sh_ui_start;
     shell_ctx.ui_lvgl = sh_ui_lvgl;
     shell_ctx.usb_read = sh_usb_read;
-    shell_ctx.gui = sh_gui;
     shell_ctx.clear = sh_clear;
     shell_ctx.putc = sh_putc;
     shell_ctx.puts = sh_puts;

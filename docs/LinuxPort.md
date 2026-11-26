@@ -17,23 +17,20 @@ directly.
 - an in-process ELF loader for `EXEC`/`EXEC_MEM`, preserving the AMD64
   check-then-exec-bytes model after SecureKernel verification;
 - a generated gzip-cpio initramfs with a static C PID 1 that mounts the basic
-  pseudo-filesystems, loads `nkabi3.ko` and boots the native userspace;
+  pseudo-filesystems, loads `i915.ko` plus its DRM/fbdev dependencies from
+  `/lib/modules/6.6.162-nk`, loads `nkabi3.ko` and boots the native userspace;
 - a Linux framebuffer backend: `/dev/fb0` first, then a DRM/KMS dumb buffer on
   `/dev/dri/card0` (with a 1024x768 fallback for headless virtio-GPU and a
-  periodic `DIRTYFB` flush so the host repaints it), so InterfaceKit can use the
-  VGA/virtio-GPU adapter;
-- a standalone framebuffer console: the shim mirrors init/`nksh` output onto
-  the DRM scanout from `FB_INFO`/`FB_MAP` and reads keys from
-  `/dev/input/event*`, so the `nk)` prompt works without InterfaceKit, fbcon or
-  a serial UART. Text uses the port's rounded 6x10 face with real lowercase at
-  2x scale (about 71x28 characters at 1024x768) and the evdev map follows the
-  QWERTY key order, so `l`/`s` no longer arrive as `i`/`b`; EV_KEY autorepeat is
-  ignored and navigation keys become ANSI sequences for the line editor;
-- a framebuffer GUI engine (`fb_gfx.c` + `fb_gui.c`) that paints title bars,
-  cards, tables, progress bars, badges, buttons, lists and a status bar on the
-  same scanout, with a live dashboard beside the CLI, without InterfaceKit;
+  periodic `DIRTYFB` flush so the host repaints it), so LVGL/InterfaceKit can
+  use the VGA/virtio-GPU adapter;
+- a tty console for `nksh`: PID 1 opens `/dev/console` (or `/dev/tty0` /
+  `/dev/ttyS0`), claims it as the controlling terminal and sets it to
+  non-canonical, no-echo mode so the shell's own line editor sees every key;
 - console routing that follows Linux's `/dev/console` for serial/VT output while
-  background service chatter goes to `/@/data/system/nullk.log`.
+  background service chatter goes to `/@/data/system/nullk.log`;
+- an optional LVGL desktop, started with `ui lvgl` from the tty, which uses the
+  framebuffer backend above and keyboard/pointer events from
+  `/dev/input/event*`; no desktop starts at boot.
 
 The first phase is out-of-tree. Optional Linux 6.6.162 LTS patches belong in
 `nullk/ports/linux/patches/optional/` and hook the exported

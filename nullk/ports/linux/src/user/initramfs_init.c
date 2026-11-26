@@ -2,10 +2,11 @@
  * Minimal static PID 1 for the gothicOS Linux initramfs.
  *
  * The generated archive deliberately contains no shell and no insmod binary:
- * this binary mounts the basic pseudo-filesystems, loads /lib/nullk/nkabi3.ko
- * when possible, prepares the @/ payload and execs the real ABI v3 init. It is
- * also installed as /lib/init so existing Limine entries using init=/lib/init
- * keep working.
+ * this binary mounts the basic pseudo-filesystems, loads the kernel modules
+ * listed in /lib/nullk/kernel-modules (i915 and its dependencies on real
+ * Intel hardware), loads /lib/nullk/nkabi3.ko when possible, prepares the @/
+ * payload and execs the real ABI v3 init. It is also installed as /lib/init so
+ * existing Limine entries using init=/lib/init keep working.
  */
 #define _GNU_SOURCE
 #include <errno.h>
@@ -21,6 +22,8 @@
 #define INITRD_ROOT "/"
 #define NULLK_ROOT  "/@"
 #define MODULE_PATH "/lib/nullk/nkabi3.ko"
+#define MODULE_ROOT "/lib/modules/6.6.162-nk"
+#define MODULE_MANIFEST "/lib/nullk/kernel-modules"
 #define PAYLOAD_ELF "/lib/nullk/nullk-linux.elf"
 
 static void ensure_dir(const char *path)
@@ -78,7 +81,7 @@ done:
     return rc;
 }
 
-static void load_module(void)
+static int load_module(const char *path, const char *args)
 {
     struct stat st;
     unsigned char *image;
@@ -86,39 +89,81 @@ static void load_module(void)
     int fd;
     long rc;
 
-    fd = open(MODULE_PATH, O_RDONLY | O_CLOEXEC);
+    fd = open(path, O_RDONLY | O_CLOEXEC);
     if (fd < 0) {
-        fprintf(stderr, "[init64] %s absent; userspace-only mode\n",
-                MODULE_PATH);
-        return;
+        fprintf(stderr, "[init64] %s absent; skipping\n", path);
+        return -1;
     }
-    if (fstat(fd, &st) != 0 || st.st_size <= 0 || st.st_size > 0x100000) {
-        fprintf(stderr, "[init64] %s has invalid size\n", MODULE_PATH);
+    if (fstat(fd, &st) != 0 || st.st_size <= 0 || st.st_size > 0x1000000) {
+        fprintf(stderr, "[init64] %s has invalid size\n", path);
         close(fd);
-        return;
+        return -1;
     }
     image = malloc((size_t)st.st_size);
     if (image == NULL) {
         close(fd);
-        return;
+        return -1;
     }
     got = read(fd, image, (size_t)st.st_size);
     close(fd);
     if (got != (ssize_t)st.st_size) {
-        fprintf(stderr, "[init64] failed to read %s\n", MODULE_PATH);
+        fprintf(stderr, "[init64] failed to read %s\n", path);
         free(image);
-        return;
+        return -1;
     }
 
-    rc = syscall(SYS_init_module, image, (size_t)st.st_size, "");
-    free(image);
+    rc = syscall(SYS_init_module, image, (size_t)st.st_size,
+                 args != NULL ? args : "");
     if (rc != 0) {
-        fprintf(stderr, "[init64] init_module failed: %s; "
-                        "continuing in userspace-only mode\n",
+        fprintf(stderr, "[init64] init_module %s failed: %s\n", path,
                 strerror(errno));
+        free(image);
+        return -1;
+    }
+    free(image);
+    fprintf(stderr, "[init64] loaded %s\n", path);
+    return 0;
+}
+
+static void load_kernel_modules(void)
+{
+    char line[512];
+    FILE *fp;
+
+    fp = fopen(MODULE_MANIFEST, "r");
+    if (fp == NULL) {
         return;
     }
-    fputs("[init64] native Linux ABI v3 control plane attached\n", stderr);
+    while (fgets(line, sizeof(line), fp) != NULL) {
+        char name[256];
+        char args[256];
+        char path[sizeof(MODULE_ROOT) + sizeof(name) + 2];
+        char *comment = strchr(line, '#');
+
+        if (comment != NULL) {
+            *comment = '\0';
+        }
+        args[0] = '\0';
+        if (sscanf(line, "%255s %255[^\n]", name, args) < 1) {
+            continue;
+        }
+        snprintf(path, sizeof(path), "%s/%s", MODULE_ROOT, name);
+        (void)load_module(path, args);
+    }
+    fclose(fp);
+}
+
+static void wait_for_display(void)
+{
+    unsigned int i;
+
+    for (i = 0; i < 20; ++i) {
+        if (access("/dev/fb0", F_OK) == 0 ||
+            access("/dev/dri/card0", F_OK) == 0) {
+            return;
+        }
+        usleep(50000);
+    }
 }
 
 int main(void)
@@ -140,7 +185,13 @@ int main(void)
         fputs("[init64] payload staging incomplete\n", stderr);
     }
 
-    load_module();
+    load_kernel_modules();
+    wait_for_display();
+
+    if (load_module(MODULE_PATH, "") == 0) {
+        fputs("[init64] native Linux ABI v3 control plane attached\n",
+              stderr);
+    }
     (void)setenv("NULLK64_ROOT", NULLK_ROOT, 1);
 
     fputs("[init64] gothicOS Linux userspace init starting\n", stderr);

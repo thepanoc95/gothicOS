@@ -16,7 +16,6 @@
 #include <fcntl.h>
 #include <linux/fb.h>
 #include <linux/input.h>
-#include <poll.h>
 #include <pthread.h>
 #include <sched.h>
 #include <signal.h>
@@ -33,7 +32,6 @@
 
 #include "libnk64.h"
 #include "nullk_linux/abi3_ioctl.h"
-#include "nullk_linux/fb_console.h"
 #include "nullk_linux/user_shim.h"
 
 #define NK64_LINUX_MAX_FILES 256u
@@ -103,9 +101,6 @@ int nk64_linux_init(void)
         (void)ioctl(g_ctl_fd, NK64_ABI3_IOC_ATTACH);
     }
     g_initialized = 1;
-    if (nk64_fb_console_init != NULL) {
-        nk64_fb_console_init();
-    }
     return g_ctl_fd;
 }
 
@@ -189,11 +184,6 @@ static int nk64_owns_console(void)
     return owned;
 }
 
-static int nk64_fb_console_on(void)
-{
-    return nk64_fb_console_active != NULL && nk64_fb_console_active() != 0;
-}
-
 static int nk64_log_fd(void)
 {
     char path[NK_VFS_PATH_MAX];
@@ -219,11 +209,8 @@ static ssize_t nk64_emit(int fd, const void *buf, size_t len)
 {
     int out = fd;
 
-    if ((fd == STDOUT_FILENO || fd == STDERR_FILENO) &&
-        nk64_owns_console() && nk64_fb_console_on() &&
-        nk64_fb_console_output_push != NULL) {
-        nk64_fb_console_output_push((const uint8_t *)buf, len);
-    }
+    /* Background services still go to the log so they cannot trample the nk)
+     * prompt on the tty. */
     if ((fd == STDOUT_FILENO || fd == STDERR_FILENO) &&
         !nk64_owns_console()) {
         out = nk64_log_fd();
@@ -661,8 +648,8 @@ static uint32_t g_input_mods;
 
 static uint32_t nk64_linux_key_char(uint16_t code, uint32_t shifted)
 {
-    static const char letters[26] = "abcdefghijklmnopqrstuvwxyz";
-    static const char digits[10] = "1234567890";
+    static const char letters[] = "abcdefghijklmnopqrstuvwxyz";
+    static const char digits[] = "1234567890";
 
     if (code >= KEY_A && code <= KEY_Z) {
         char c = letters[code - KEY_A];
@@ -1092,22 +1079,7 @@ uint64_t nk64_syscall(uint64_t n, uint64_t a0, uint64_t a1, uint64_t a2,
         if (fd < 0) {
             return (uint64_t)NK_STATUS_INVALID_ARGUMENT;
         }
-        if (fd == STDIN_FILENO && nk64_owns_console() &&
-            nk64_fb_console_on() && nk64_fb_console_input_get != NULL) {
-            struct pollfd pfd;
-            size_t got = nk64_fb_console_input_get((uint8_t *)(uintptr_t)a1,
-                                                   (size_t)a2);
-
-            if (got != 0u) {
-                return (uint64_t)got;
-            }
-            pfd.fd = fd;
-            pfd.events = POLLIN;
-            pfd.revents = 0;
-            if (poll(&pfd, 1u, 10) <= 0 || (pfd.revents & POLLIN) == 0) {
-                return 0u;
-            }
-        }
+        /* Keys come straight from the tty configured by nk64_tty_console_init(). */
         return (uint64_t)read(fd, (void *)(uintptr_t)a1, (size_t)a2);
     }
     case NK64_SC_WRITE: {

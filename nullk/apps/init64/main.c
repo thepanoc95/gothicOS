@@ -58,7 +58,7 @@ void _start(void)
     uint64_t shell_id;
     uint32_t rc;
 
-    nk_printf("\ninit64: boot: userspace init (ABI v3, ring 3)\n");
+    nk_printf("\ninit64: boot: userspace init \n");
     nk_memset(&info, 0, sizeof(info));
     rc = nk64_getinfo(&info);
     if (rc != 0) {

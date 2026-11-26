@@ -15,6 +15,7 @@ OBJ := $(BUILD)/obj
 CC ?= gcc
 CXX ?= g++
 KDIR ?= /lib/modules/$(shell uname -r)/build
+FIRMWARE_DIR ?= /lib/firmware
 
 INCLUDES := -Iinclude \
             -I$(NULLK_ROOT)/include \
@@ -36,8 +37,7 @@ LINK_FLAGS := -static -pthread -no-pie \
               -Wl,-Ttext-segment=0x10000000
 
 PORT_C_SRC := src/user/init_pid1.c src/user/nk64_syscall_linux.c \
-              src/user/fb_console.c src/user/fb_font.c \
-              src/user/fb_gfx.c src/user/fb_gui.c
+              src/user/tty_console.c
 PORT_C_OBJ := $(patsubst src/%.c,$(OBJ)/port/%.o,$(PORT_C_SRC))
 
 LVGL_DIR := $(shell $(NULLK_ROOT)/tools/fetch_lvgl.sh 2>/dev/null)
@@ -77,9 +77,6 @@ INIT_OBJ := $(OBJ)/initramfs/initramfs_init.o
 INIT_BIN := $(BUILD)/initramfs-init
 TEST_SRC := tests/test_abi_layout.c
 TEST_OBJ := $(OBJ)/tests/test_abi_layout.o
-KEYMAP_TEST_SRC := tests/test_evdev_keycode.c
-KEYMAP_TEST_OBJ := $(OBJ)/tests/test_evdev_keycode.o
-KEYMAP_TEST_BIN := $(BUILD)/test_evdev_keycode
 TEST_BIN := $(BUILD)/test_linux_port
 
 .PHONY: all user module test initramfs clean module-clean
@@ -125,17 +122,8 @@ $(TEST_BIN): $(TEST_OBJ) $(OBJ)/port/user/nk64_syscall_linux.o \
 	@mkdir -p $(dir $@)
 	$(CC) -pthread -o $@ $^
 
-$(KEYMAP_TEST_OBJ): $(KEYMAP_TEST_SRC)
-	@mkdir -p $(dir $@)
-	$(CC) $(USER_CFLAGS) -c $< -o $@
-
-$(KEYMAP_TEST_BIN): $(KEYMAP_TEST_OBJ)
-	@mkdir -p $(dir $@)
-	$(CC) -o $@ $^
-
-test: $(TEST_BIN) $(KEYMAP_TEST_BIN)
+test: $(TEST_BIN)
 	$(TEST_BIN)
-	$(KEYMAP_TEST_BIN)
 
 module:
 	$(MAKE) -C $(KDIR) M=$(PORT_ROOT) modules
@@ -144,7 +132,9 @@ module:
 
 initramfs: user
 	python3 scripts/mkinitramfs.py --out $(BUILD)/initrd-6.6.162-nk.img \
-		--init $(INIT_BIN) --elf $(USER_ELF) --module $(BUILD)/nkabi3.ko
+		--init $(INIT_BIN) --elf $(USER_ELF) \
+		--module $(BUILD)/nkabi3.ko --module-dir $(KDIR) \
+		--firmware-dir $(FIRMWARE_DIR)
 
 module-clean:
 	-$(MAKE) -C $(KDIR) M=$(PORT_ROOT) clean

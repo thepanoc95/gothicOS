@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <unistd.h>
 
+#include "nullk_linux/tty_console.h"
 #include "nullk_linux/user_shim.h"
 
 /* apps/init64/main.c is compiled with -D_start=nk64_amd64_init_start. */
@@ -16,7 +17,12 @@ void nk64_amd64_init_start(void);
 
 int main(void)
 {
-    int ctl = nk64_linux_init();
+    int ctl;
+
+    /* Put nksh on the kernel's VT/serial tty. LVGL stays opt-in and uses the
+     * ABI v3 framebuffer backend directly from `ui lvgl`. */
+    (void)nk64_tty_console_init();
+    ctl = nk64_linux_init();
 
     if (ctl < 0) {
         fputs("[init64] /dev/nkabi3 unavailable; userspace ABI only\n", stderr);

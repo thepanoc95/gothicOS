@@ -1,0 +1,8 @@
+# Kernel modules for the 6.6.162-nk initramfs, loaded by /init in this order.
+# Dependencies come first; i915 is last because it needs all of them.
+# Optional module parameters go after the filename on the same line.
+drm_display_helper.ko
+ttm.ko
+drm_buddy.ko
+i2c-algo-bit.ko
+i915.ko fastboot=1

@@ -25,7 +25,7 @@
 
 static const char *const g_commands[] = {
     "help", "info", "sysinfo", "pwd", "cd", "ls", "cat", "stat", "head",
-    "wc", "grep", "echo", "mem", "exec", "ui", "gui", "usb", "history",
+    "wc", "grep", "echo", "mem", "exec", "ui", "usb", "history",
     "clear", "exit", "quit", (const char *)0
 };
 
@@ -467,10 +467,7 @@ uint32_t nk_shell64_history_count(const nk_shell64_ctx_t *ctx)
 
 void nk_shell64_banner(nk_shell64_ctx_t *ctx)
 {
-    nk_sh_puts(ctx, "+------------------------------+\n");
-    nk_sh_puts(ctx, "|  null_kernel  nk) shell      |\n");
-    nk_sh_puts(ctx, "+------------------------------+\n");
-    nk_sh_puts(ctx, "null_kernel nk) shell - type help\n");
+    nk_sh_puts(ctx, "Welcome to null kernel! :3\n");
 }
 
 void nk_shell64_help(nk_shell64_ctx_t *ctx)
@@ -500,8 +497,6 @@ void nk_shell64_help(nk_shell64_ctx_t *ctx)
                "  exec <path>             SecureKernel-checked ELF exec\n"
                "  ui start                start gothicOS InterfaceKit\n"
                "  ui lvgl                 start the LVGL desktop (claims the fb)\n"
-               "  gui demo                GUI engine showcase on the framebuffer\n"
-               "  gui close | panel on|off\n"
                "  usb lun <n>             inspect a NKUSBPRG LUN\n"
                "  usb load <n>            load and exec a NKUSBPRG payload\n"
                "  exit | quit             stop the shell\n");
@@ -519,7 +514,7 @@ void nk_shell64_init(nk_shell64_ctx_t *ctx)
 
 void nk_shell64_prompt(nk_shell64_ctx_t *ctx)
 {
-    nk_sh_emit(ctx, "nk) ", 4u);
+    nk_sh_emit(ctx, "@> ", 4u);
 }
 
 static void nk_sh_cmd_info(nk_shell64_ctx_t *ctx)
@@ -1031,7 +1026,7 @@ static void nk_sh_cmd_exec(nk_shell64_ctx_t *ctx, const char *path)
     status = ctx->exec(resolved);
     nk_sh_printf(ctx, "exec %s: %u\n", resolved, status);
 }
-
+/*
 static void nk_sh_cmd_ui(nk_shell64_ctx_t *ctx, uint32_t argc, char **argv)
 {
     nk_status_t status;
@@ -1041,8 +1036,8 @@ static void nk_sh_cmd_ui(nk_shell64_ctx_t *ctx, uint32_t argc, char **argv)
         return;
     }
     if (nk_sh_streq(argv[1], "lvgl")) {
-        /* LVGL claims the whole framebuffer, so it is mutually exclusive
-         * with the InterfaceKit desktop: whichever starts first owns it. */
+         // * LVGL claims the whole framebuffer, so it is mutually exclusive
+         // with the InterfaceKit desktop: whichever starts first owns it.
         if (ctx->ui_lvgl == (nk_status_t (*)(void))0) {
             nk_sh_puts(ctx, "ui: LVGL desktop unavailable in this shell\n");
             return;
@@ -1075,47 +1070,7 @@ static void nk_sh_cmd_ui(nk_shell64_ctx_t *ctx, uint32_t argc, char **argv)
     }
 }
 
-static void nk_sh_cmd_gui(nk_shell64_ctx_t *ctx, uint32_t argc, char **argv)
-{
-    uint32_t command;
-    nk_status_t status;
-
-    if (ctx->gui == (nk_status_t (*)(uint32_t))0) {
-        nk_sh_puts(ctx, "gui: no framebuffer console in this shell\n");
-        return;
-    }
-    if (argc < 2u) {
-        nk_sh_puts(ctx, "usage: gui demo | close | refresh | panel on|off\n");
-        return;
-    }
-    if (nk_sh_streq(argv[1], "demo")) {
-        command = NK_SHELL_GUI_DEMO;
-    } else if (nk_sh_streq(argv[1], "close")) {
-        command = NK_SHELL_GUI_CLOSE;
-    } else if (nk_sh_streq(argv[1], "refresh")) {
-        command = NK_SHELL_GUI_REFRESH;
-    } else if (nk_sh_streq(argv[1], "panel")) {
-        if (argc < 3u ||
-            (!nk_sh_streq(argv[2], "on") && !nk_sh_streq(argv[2], "off"))) {
-            nk_sh_puts(ctx, "usage: gui panel on|off\n");
-            return;
-        }
-        command = nk_sh_streq(argv[2], "on") ? NK_SHELL_GUI_PANEL_ON
-                                             : NK_SHELL_GUI_PANEL_OFF;
-    } else {
-        nk_sh_puts(ctx, "usage: gui demo | close | refresh | panel on|off\n");
-        return;
-    }
-    status = ctx->gui(command);
-    if (status != NK_STATUS_OK) {
-        nk_sh_puts(ctx, "gui: framebuffer console unavailable\n");
-        return;
-    }
-    if (command == NK_SHELL_GUI_DEMO) {
-        nk_sh_puts(ctx, "gui: showcase on screen (any key or 'gui close')\n");
-    }
-}
-
+*/
 static void nk_sh_cmd_usb(nk_shell64_ctx_t *ctx, uint32_t argc, char **argv)
 {
     uint8_t sector[512];
@@ -1262,10 +1217,6 @@ int nk_shell64_exec(nk_shell64_ctx_t *ctx, char *line)
         } else {
             nk_sh_cmd_exec(ctx, argv[1]);
         }
-    } else if (nk_sh_streq(argv[0], "ui")) {
-        nk_sh_cmd_ui(ctx, argc, argv);
-    } else if (nk_sh_streq(argv[0], "gui")) {
-        nk_sh_cmd_gui(ctx, argc, argv);
     } else if (nk_sh_streq(argv[0], "usb")) {
         nk_sh_cmd_usb(ctx, argc, argv);
     } else if (nk_sh_streq(argv[0], "clear")) {

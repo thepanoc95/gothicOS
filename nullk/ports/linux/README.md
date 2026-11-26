@@ -51,7 +51,26 @@ Outputs go to `build/NullKernel/linux/`:
 | `nullk-linux.elf` | PID 1 replacement containing init64 + all ring-3 services |
 | `test_linux_port` | Host ABI-layout/path-map checks |
 | `nkabi3.ko` | Optional ABI v3 control-plane LKM |
-| `initrd-6.6.162-nk.img` | gzip cpio initramfs with `/init` and `/@` payload |
+| `initrd-6.6.162-nk.img` | gzip cpio initramfs with `/init`, `/@` payload and DRM/fbdev modules |
+
+### Intel framebuffer on UEFI laptops
+
+The 6.6.162 build uses `CONFIG_DRM_I915=m` plus `CONFIG_FB=y`,
+`CONFIG_FB_EFI=y`, `CONFIG_DRM_FBDEV_EMULATION=y` and
+`CONFIG_FRAMEBUFFER_CONSOLE=y`. That gives the Acer Aspire A514-54 an Intel DRM
+scanout, an EFI/GOP fallback and a real VT/fbcon text console instead of a black
+screen after handoff.
+
+`configs/initramfs/kernel-modules.txt` lists the modules packed into the image:
+`drm_display_helper.ko`, `ttm.ko`, `drm_buddy.ko`, `i2c-algo-bit.ko` and
+`i915.ko` (loaded last with `fastboot=1`). `/init` reads
+`/lib/nullk/kernel-modules` and loads them before `nkabi3.ko`; no shell or
+`insmod` binary is needed. `make initramfs` takes the modules from `KDIR` and,
+when present, copies `$(FIRMWARE_DIR)/i915/*` to `/lib/firmware/i915/`.
+
+Without i915 firmware files the driver still initialises the display, but DMC,
+GuC and HuC features stay disabled. Install `linux-firmware` (or set
+`FIRMWARE_DIR` to a tree containing `i915/`) and rebuild the image to get them.
 
 ## ABI boundary
 
@@ -79,74 +98,44 @@ ioctl is logged at `pr_debug()` as well.
 
 ### Console selection
 
-`nksh` inherits fd 0/1 from `/init`, so it follows Linux's `/dev/console`. There
-are two independent console paths, neither of which needs InterfaceKit:
+There is no null_kernel framebuffer TUI. `src/user/tty_console.c` opens
+`/dev/console` (which follows Linux's `console=` argument), falls back to
+`/dev/tty0` and `/dev/ttyS0`, claims the tty as the controlling terminal and
+duplicates it onto fd 0/1/2 in non-canonical, no-echo mode. nksh's own line
+editor handles echo, backspace and escape sequences, so Ctrl+C and Ctrl+L are
+not stolen by the terminal driver. If no tty can be opened, PID 1 keeps the
+`/dev/console` descriptors inherited from the kernel.
 
-- **DRM framebuffer console.** At `nk64_linux_init()` the shim probes
-  `FB_INFO`/`FB_MAP` and, when a framebuffer is available, starts a standalone
-  console on the scanout buffer. Init/nksh output is mirrored there, and keys
-  are read directly from `/dev/input/event*` using the QWERTY evdev map. Each
-  input device is opened once, so a keystroke is delivered exactly once.
-  EV_KEY autorepeat (value 2) is ignored, so holding a key no longer floods
-  the line; navigation keys become ANSI sequences (`ESC [ A`, `ESC [ 3 ~`, ...)
-  for the shell's line editor. Text uses the port's own rounded 6x10 face with
-  real lowercase - `l` is not `I`, `s` is not `B` - at 2x scale, giving 71x28
-  characters at 1024x768 (47x28 with the GUI dashboard open). This works with
-  `-vga virtio` or `-vga none -device virtio-gpu-pci`, even though the kernel
-  has no `CONFIG_FB` or `DRM_FBDEV_EMULATION`.
-
-### GUI engine and console layout
-
-`src/user/fb_gfx.c` is a self-contained drawing core (blended pixels, rounded
-rectangles, gradients, lines and the console face) over the same `FB_MAP`
-scanout. `src/user/fb_gui.c` builds GUI-intended widgets on it: window chrome,
-cards, key/value rows, dividers, badges, buttons, progress bars, selectable
-lists, tables, a status bar and a theme palette. Neither file includes or calls
-InterfaceKit.
-
-The console uses that engine for a title bar, a right-hand dashboard (system,
-display, console buffer and shortcut cards) and a status bar with uptime. The
-dashboard follows the real `GETINFO`/`FB_INFO` values and disappears on small
-screens; `gui panel off` reclaims the columns. `gui demo` paints a modal
-showcase of every widget and returns on the next key press.
-
-### nksh on the framebuffer
-
-The shared command engine now tracks a working directory (`cd`, `.`, `..`),
-and adds `stat`, `head`, `wc`, `grep`, `history`, `sysinfo`, `gui`, plus a line
-editor: Left/Right/Home/End/Delete, word delete, Ctrl+A/E/U/K/L/C and Tab
-completion of command names. `gui demo` is mode-sensitive: any key dismisses
-the showcase instead of typing into the hidden prompt.
-- **Legacy VGA/VT console.** With `-vga std` and no serial override, Linux uses
-  `tty0` for `/dev/console`, so the `nk)` prompt and keyboard also work without
-  any DRM framebuffer.
-
+With `-vga std` and no serial override, Linux uses `tty0` for `/dev/console`.
 Add `console=ttyS0,115200` only when you specifically want a UART console:
 
 ```text
 console=ttyS0,115200 init=/init rw loglevel=4
 ```
 
-The framebuffer console mirrors the same output when a DRM card is present.
-Background service chatter still goes to `/@/data/system/nullk.log`.
-
-For a visible QEMU framebuffer console:
+For a visible QEMU terminal:
 
 ```sh
-qemu-system-x86_64 ... -vga virtio -vnc :99 \
+qemu-system-x86_64 ... -vga std -vnc :99 \
   -append 'init=/init rw loglevel=4'
 ```
 
 The `nk)` prompt appears in VNC and accepts keyboard input as soon as init
-starts. Running `ui start` after that lets InterfaceKit paint over the same
-scanout buffer.
+starts. The shared command engine tracks a working directory (`cd`, `.`,
+`..`) and adds `stat`, `head`, `wc`, `grep`, `history` and `sysinfo`, plus a
+line editor: Left/Right/Home/End/Delete, word delete, Ctrl+A/E/U/K/L/C and Tab
+completion of command names.
 
-InterfaceKit stays opt-in. With a virtio-GPU or real DRM card, `FB_INFO` and
-`FB_MAP` return a real scanout buffer so the desktop and future UI work under
-Linux. Headless virtio-GPU still gets a 1024x768 dumb-buffer fallback, and the
-shim periodically issues `DRM_IOCTL_MODE_DIRTYFB` so the host actually repaints
-that buffer. Without any framebuffer device, it logs that the desktop is
-disabled and serial services continue.
+### Optional LVGL desktop
+
+The framebuffer is reserved for the optional UI, started from the tty with
+`ui lvgl`. It is not started by init and does not need a console of its own.
+With a virtio-GPU or real DRM card, `FB_INFO` and `FB_MAP` return a real
+scanout buffer so LVGL/InterfaceKit can paint under Linux. Headless virtio-GPU
+still gets a 1024x768 dumb-buffer fallback, and the shim periodically issues
+`DRM_IOCTL_MODE_DIRTYFB` so the host actually repaints that buffer. LVGL input
+comes from evdev nodes under `/dev/input/event*`. Without any framebuffer
+device, the desktop is unavailable and the tty console keeps working.
 
 For a visible QEMU desktop, make the virtio GPU the primary display:
 

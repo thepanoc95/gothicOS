@@ -2,9 +2,10 @@
 """Build a small gothicOS Linux initramfs without requiring cpio(1).
 
 The archive is a gzip-compressed "newc" cpio image containing a static C /init,
-the native ABI v3 userspace ELF, the optional /dev/nkabi3 module and the @/
-payload expected by init64. /lib/init is an alias for existing Limine entries
-that pass init=/lib/init. Linux 6.6 accepts this format directly.
+the native ABI v3 userspace ELF, optional kernel modules (including the Intel
+i915 framebuffer/DRM driver) and the @/ payload expected by init64. /lib/init
+is an alias for existing Limine entries that pass init=/lib/init. Linux 6.6
+accepts this format directly.
 """
 from __future__ import annotations
 
@@ -14,6 +15,9 @@ from pathlib import Path
 
 PORT_ROOT = Path(__file__).resolve().parents[1]
 CONFIG_ROOT = PORT_ROOT / "configs" / "initramfs"
+MODULE_ROOT = "lib/modules/6.6.162-nk"
+FIRMWARE_ROOT = "lib/firmware/i915"
+KERNEL_MODULE_LIST = CONFIG_ROOT / "kernel-modules.txt"
 
 
 def header(name: str, mode: int, size: int, mtime: int, ino: int) -> bytes:
@@ -46,10 +50,19 @@ def pad(data: bytes) -> bytes:
     return data
 
 
-def add_file(out: bytearray, arcname: str, path: Path, ino: int) -> int:
+def add_data(out: bytearray, arcname: str, data: bytes, ino: int,
+             mode: int = 0o100644) -> int:
+    out += header(arcname.lstrip("/"), mode, len(data), 0, ino)
+    out += pad(data)
+    return ino + 1
+
+
+def add_file(out: bytearray, arcname: str, path: Path, ino: int,
+             mode: int | None = None) -> int:
     data = path.read_bytes()
-    mode = 0o100755 if arcname in ("init", "lib/init",
-                                    "lib/nullk/nullk-linux.elf") else 0o100644
+    if mode is None:
+        mode = 0o100755 if arcname in ("init", "lib/init",
+                                        "lib/nullk/nullk-linux.elf") else 0o100644
     out += header(arcname.lstrip("/"), mode, len(data),
                   int(path.stat().st_mtime), ino)
     out += pad(data)
@@ -61,16 +74,51 @@ def add_dir(out: bytearray, arcname: str, ino: int) -> int:
     return ino + 1
 
 
-def build(out_path: Path, init: Path, elf: Path,
-          module: Path | None) -> None:
+def read_kernel_modules(module_dir: Path | None) -> list[tuple[str, str, Path]]:
+    """Return (name, args, source path) tuples from the module manifest."""
+    if module_dir is None or not KERNEL_MODULE_LIST.is_file():
+        return []
+
+    modules: list[tuple[str, str, Path]] = []
+    for raw in KERNEL_MODULE_LIST.read_text().splitlines():
+        line = raw.split("#", 1)[0].strip()
+        if not line:
+            continue
+        parts = line.split(None, 1)
+        name = parts[0]
+        args = parts[1].strip() if len(parts) > 1 else ""
+        matches = sorted(module_dir.rglob(name))
+        if not matches:
+            raise SystemExit(
+                f"kernel module {name} not found under {module_dir}")
+        modules.append((name, args, matches[0]))
+    return modules
+
+
+def read_i915_firmware(firmware_dir: Path | None) -> list[Path]:
+    """Return i915 firmware files to place under /lib/firmware/i915."""
+    if firmware_dir is None:
+        return []
+    source = firmware_dir / "i915"
+    if not source.is_dir():
+        return []
+    return sorted(path for path in source.rglob("*") if path.is_file())
+
+
+def build(out_path: Path, init: Path, elf: Path, module: Path | None,
+          module_dir: Path | None, firmware_dir: Path | None) -> None:
     if not init.is_file():
         raise SystemExit(f"missing static init: {init}")
     if not elf.is_file():
         raise SystemExit(f"missing userspace ELF: {elf}")
 
+    kernel_modules = read_kernel_modules(module_dir)
+    firmware = read_i915_firmware(firmware_dir)
+
     archive = bytearray()
     ino = 1
-    for directory in ["", "lib", "lib/nullk", "lib/nullk/payload", "@",
+    for directory in ["", "lib", "lib/modules", MODULE_ROOT, "lib/firmware",
+                      FIRMWARE_ROOT, "lib/nullk", "lib/nullk/payload", "@",
                       "@/data", "@/data/system", "@/data/user",
                       "@/data/user/bin", "dev", "proc", "sys"]:
         ino = add_dir(archive, directory, ino)
@@ -83,6 +131,20 @@ def build(out_path: Path, init: Path, elf: Path,
         ino = add_file(archive, "lib/nullk/nkabi3.ko", module, ino)
     else:
         print("warning: LKM not found; building userspace-only initramfs")
+
+    manifest = "".join(f"{name} {args}\n" for name, args, _ in kernel_modules)
+    ino = add_data(archive, "lib/nullk/kernel-modules",
+                   manifest.encode(), ino)
+    for name, _, path in kernel_modules:
+        ino = add_file(archive, f"{MODULE_ROOT}/{name}", path, ino)
+    if kernel_modules:
+        print("kernel modules: " + ", ".join(name for name, _, _ in kernel_modules))
+    else:
+        print("warning: no kernel modules packaged; pass --module-dir KDIR")
+    for path in firmware:
+        ino = add_file(archive, f"{FIRMWARE_ROOT}/{path.name}", path, ino)
+    if firmware:
+        print(f"i915 firmware: {len(firmware)} file(s)")
 
     payload = CONFIG_ROOT / "data" / "system"
     ino = add_file(archive, "lib/nullk/payload/limine.cfg",
@@ -112,10 +174,21 @@ def main() -> None:
     parser.add_argument("--init", type=Path)
     parser.add_argument("--elf", required=True, type=Path)
     parser.add_argument("--module", type=Path)
+    parser.add_argument("--module-dir", type=Path,
+                        help="built Linux tree; modules listed in "
+                             "configs/initramfs/kernel-modules.txt are copied")
+    parser.add_argument("--firmware-dir", type=Path,
+                        help="firmware root; i915/* is copied when available")
     args = parser.parse_args()
     init = args.init or args.elf.parent / "initramfs-init"
     module = args.module if args.module and args.module.is_file() else None
-    build(args.out, init, args.elf, module)
+    module_dir = args.module_dir if args.module_dir and \
+        args.module_dir.is_dir() else None
+    if args.module_dir and module_dir is None:
+        print(f"warning: kernel module dir not found: {args.module_dir}")
+    firmware_dir = args.firmware_dir if args.firmware_dir and \
+        args.firmware_dir.is_dir() else None
+    build(args.out, init, args.elf, module, module_dir, firmware_dir)
 
 
 if __name__ == "__main__":
